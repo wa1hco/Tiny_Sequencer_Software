@@ -1,76 +1,91 @@
 // Tiny Sequencer
 // Licensed under GPL V3, copyright 2024 by jeff millar, wa1hco
 
-// on Key asserted, transition to transmit, assumes key remain asserted
-//   state 1, assert relay 1, wait relay 1 assert time; usually antenna transfer relay
-//   state 2, assert relay 2, wait relay 2 assert time; usually transverter relays
-//   state 3, assert relay 3, wait relay 3 assert time; usually (something)
-//   state 4, assert relay 4, wait relay 4 assert time; transmitter
-//   state 5, transmit ready
+// on Key asserted, transition thru states to Tx, assuming key remain asserted
+//   state S1T, assert relay 1, wait relay 1 assert time; usually antenna transfer relay
+//   state S2T, assert relay 2, wait relay 2 assert time; usually transverter relays
+//   state S3T, assert relay 3, wait relay 3 assert time; usually (something)
+//   state S4T, assert relay 4, wait relay 4 assert time; transmitter
+//   state Tx, transmit ready, assert CTS
 //   
-// on key released, transition to receive, assumes key remains released
-//   release relay 4, 
-//   wait relay 4 release time, release relay 3
-//   wait relay 3 release time, release relay 2
-//   wait relay 2 release time, release relay 1
-//   wait relay 1 release time, receive ready
+// on key released, transition thru states to Rx, assuming key remains released
+//   State S4R, release relay 4, release CTS, wait relay 4 release time
+//   State S3R, release relay 3, wait relay 3 release time
+//   State S2R, release relay 2, wait relay 2 release time
+//   State S1R, release relay 1, wait relay 1 release time 
+//   receive ready
 
 // on key released during transition to transmit
-//   transition out of current state to release
+//   release relay immediately
+//   wait relay release time
+//   transition to next release step
 
 // on key asserted during transition to receive
-//   complete transition to receive
-//   enter transition to transmit
+//   assert relay immediately
+//   wait relay asert time
+//   enter transition to next transmit step
 
-// Each sequence step, called from state machine
-//   enter as part or loop() at regular intervals
-//   montior KEY asserted or not asserted
-//   one timer for either assert or release
-//   monitor timer for state
+// state machine has 
+//   Rx state holds as long as key released
+//   Tx state holds as long as key asserted
+//   4 Tx timed states for relays asserted
+//   4 Rx timed states for relays released
+//   Tx states exit to corresponding Rx state if key released
+//   Rx states ex it to corresponding Tx State if key asserted
+//   Timed states set timers on transition into that state
+//   Timer values set based on relay close and open times, may be different
+//   Timeout causes transition to next state in Rx to Tx or Rx to Tx sequence
 
-// State Receive
-//   If KEY asserted, transtion to State 1
-// State Transmit
-//   If KEY released, transition to State 4
+// Keying
+//   Key inputs are external wire, RTS from USB serial port
+//   Key inputs configured as asserted HICH or LOW
+//   Key Gate is used for timout, if asserted as if unkeyed
+//   RX state will reset key gate if key signal and RTS both released
 
-// State N, manage sequence N output
-//   Parameters:State changed flag, KEY value, 
-//   Internal: Timer value, assert and release time
-//   Returns: In Process, Assert complete, Released complete
-//   if state changed (first pass thru State after a transition)
-//     if KEY asserted
-//       initialize timer using assert time
-//       assert output
-//     if KEY released
-//       intialize timer using release time
-//       release output
-//     previousKEY = KEY
-//     return InProcess
+// Timeout
+//   If external key signal asserted Tx until timeout
+//   Assert a key gate, triggers transition to Rx
+//   Rx waits for Key and RTS signals to release, clears key gate
+
+// State Machine ASCII art, legend () for state name, [] for event name 
+//                           
+//                 |--->(    Rx      )--->|
+//                 |    (tst keysig  )    |
+//                 |    (clr key gate)    v
+//              [unkey]                 [key]              
+//                 ^                      | 
+//        |---->\  | /----->[key]----->\  v  /<----|           
+//    [delay]    (S1R)                  (S1T)    [delay]
+//        |<----/  ^ \<----[unkey]<----/  |  \>----|         
+//                 |                      |
+//        |---->\  | /----->[key]----->\  v  /<----|           
+//    [delay]    (S1R)                  (S1T)    [delay]
+//        |<----/  ^ \<----[unkey]<----/  |  \>----|         
+//                 |                      |
+//        |---->\  | /----->[key]----->\  v  /<----|           
+//    [delay]    (S1R)                  (S1T)    [delay]
+//        |<----/  ^ \<----[unkey]<----/  |  \>----|         
+//                |                       |
+//        |---->\ |  /----->[key]----->\  v  /<----|           
+//    [delay]    (S1R)                  (S1T)    [delay]
+//        |<----/ ^  \<----[unkey]<----/  |  \>----|         
+//                |                       v
+//             [unkey]                  [key]                     
+//                  \                   /
+//                   <--(    Tx     )<--
+//                      (  Timeout  )
+//                      (Set KeyGate)         
 //  
-//   if state did not change and KEY == previousKEY
-//     update timer
-//     if timer in progress
-//       return InProcess
-//     if timer complete
-//       return Complete  (prevoiusKEY contains info about tx or rx transition)
-//
-//   if KEY != previousKEY
-//     if KEY asserted
-//       initialize timer using asert time
-//       assert output
-//   if KEY released
-//     initialize timer using release time
-//     release output
-//   previousKEY = KEY
-//   return InProcess
-//     
-//       
 
-//  ATTinyX14 Hardware V1-rc1 Pin Definitions
+// TODO
+//   Timeout on Tx held too long
+//   CTS asserted when in Tx state
+
+//  ATTinyX16 Hardware V1-rc1 Pin Definitions
 //----------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 // Pin      |1  |2  |3  |4  |5  |6  |7  |8  |9  |10 |11 |12 |13 |14 |15 |16 |17 |18 |19 |20 |
-// Port     |   |PA4|PA5|PA6|PA7|PB5|PB4|PB3|PB2|PB1|PB0|PC0|PC1|PC2|PC3|PA0|PA1|PA2|PA3|   |
 //----------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+// Port     |   |PA4|PA5|PA6|PA7|PB5|PB4|PB3|PB2|PB1|PB0|PC0|PC1|PC2|PC3|PA0|PA1|PA2|PA3|   |
 // Power    |PWR|   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |GND|
 // PWM      |   |   |   |   |   |   |   |8  |9  |   |   |12 |13 |14 |15 |   |   |   |   |   |
 // UPDI     |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |PDI|   |   |   |   |
@@ -79,35 +94,30 @@
 // Serial1  |   |   |   |   |   |   |   |RXD|TXD|   |   |   |   |   |   |   |   |   |   |   |
 // DAC      |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |
 // CLOCK    |   |   |   |   |   |   |   |OSC|OSC|   |   |   |   |   |   |   |   |   |EXT|   |
-//----------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|   |   |   |   |   |   |
+//----------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 // Sequencer board use of pins
 //----------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 // Pins     |1  |2  |3  |4  |5  |6  |7  |8  |9  |10 |11 |12 |13 |14 |15 |16 |17 |18 |19 |20 |  
 // Port     |   |PA4|PA5|PA6|PA7|PB5|PB4|PB3|PB2|PB1|PB0|PC0|PC1|PC2|PC3|PA0|PA1|PA2|PA3|   |
-//----------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|  // pin state initialization
-
-// SeqOut   |   |   |   |   |   |   |   |   |   |   |S4 |S3 |S2 |S1 |   |   |   |   |   |
+//----------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|  
+// SeqOut   |   |   |   |   |   |   |   |   |   |   |S3 |   |S2 |S1 |   |   |   |   |S4 |   |
 // Serial   |   |   |   |   |   |   |   |RXD|TXD|   |   |   |   |   |   |   |RTS|CTS|   |   |
 // Key      |   |   |   |   |   |   |   |   |   |   |   |   |   |   |KEY|   |   |   |   |   |
-// LED      |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |LED|   |
+// LED      |   |   |   |   |   |   |   |   |   |   |   |LED|   |   |   |   |   |   |   |   |
 // UPDI     |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |PDI|   |   |   |   |
 // EXTRA    |   |1  |2  |3  |4  |5  |6  |   |   |   |   |   |   |   |   |   |   |   |   |   |
 //--------- |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 // Unused   |   |   |   |   |   |   |   |   |   |10 |   |   |   |   |   |   |   |   |   |   |
-//--------- |---|---|---|---|---|---|---|---|---|---|---|---|---|---|   |   |   |   |   |   |
+//--------- |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
-//The following code is still for the ATTinyX16
+//The following code 
 
-// define MCU pins
+// define MCU pins for the ATTinyX16, SOIC-20, Adafruit Tiny1616 breakout
 #define KEYPIN    PIN_PC3 // MCU 15, Breakout JP4 8
-#define STEP1PIN  PIN_PC2 // MCU 14, Breakout JP4 9
-#define STEP2PIN  PIN_PC1 // MCU 13, Breakout JP4 10
-#define STEP3PIN  PIN_PB0 // MCU 11, Breakout JP2 10
-#define STEP4PIN  PIN_PA3 // MCU 19, Breakout JP4 4
-#define RTSPIN    PIN_PA1
-#define CTSPIN    PIN_PA2
-#define LEDPIN    PIN_PA3
+#define RTSPIN    PIN_PA1 // MCU 17, Breakout JP4 6
+#define CTSPIN    PIN_PA2 // MCU 18, Breakout JP4 5
+#define LEDPIN    PIN_PC0 // MCU 12, Breakout JP2 10
 #define XTRA1PIN  PIN_PA4
 #define XTRA2PIN  PIN_PA5
 #define XTRA3PIN  PIN_PA6
@@ -115,309 +125,212 @@
 #define XTRA5PIN  PIN_PB5
 #define XTRA6PIN  PIN_PB4
 
-// User defines the step timing per the data sheet for the relay
-// delays specifiec in msec after key asserted
-int  AssertTimes[] = { 300, 300, 300, 300};
-int ReleaseTimes[] = { 200, 200, 200, 200};
-
-// define input pin polarity
-#define KEYASSERTED LOW
-
+// define states and related variables
 // Sequencer board design drives high to light the LED in the optoisolator, which causes the contacts to close,
 // define sequencer contacts in terms of MCU output pin
 #define CLOSED HIGH  // drive MCU pin high to assert
 #define OPEN    LOW
 // User defines contact closure state when not keyed
-#define STEP1ASSERTED CLOSED  // Normally Open, close when keyed
-#define STEP2ASSERTED CLOSED
-#define STEP3ASSERTED CLOSED
-#define STEP4ASSERTED CLOSED
+// User defines the step timing per the data sheet for the relay
+// delays specifiec in msec after key asserted
+enum           States { Rx,     S1T,     S2T,     S3T,     S4T,   Tx,     S4R,     S3R,     S2R,     S1R};
+String StateNames[] = {"Rx",   "S1T",   "S2T",   "S3T",   "S4T", "Tx",   "S4R",   "S3R",   "S2R",   "S1R"};
+int StepPins[]      = {   0, PIN_PC2, PIN_PC1, PIN_PB0, PIN_PA3,    0, PIN_PA3, PIN_PB0, PIN_PC1, PIN_PC2};
+int StepForms[]     = {   0,  CLOSED,  CLOSED,  CLOSED,  CLOSED,    0,    OPEN,    OPEN,    OPEN,    OPEN}; 
+int StepTimes[]     = {   0,     300,     300,     300,    300,     0,     200,     200,     200,     200};
+//  SOIC-20 Pin                   14       13       11      19              19       11       13       14
+//  Tiny1616 Breakout         JP4-12   JP4-10   JP2-10   JP4-4           JP4-4   JP2-10   JP4-10   JP4-12
+
+// define input pin polarity
+#define KEYASSERTED HIGH
 
 #define LOOPTIMEINTERVAL 10 // msec
 
-enum StateNames {Rx, S1T, S2T, S3T, S4T, Tx, S4R, S3R, S2R, S1R};
+// Global state machine variables
+static int StateNext = Rx;
+static int State     = Rx;
+static int StatePrevious;
 
-void setup() {
+// Commom state timer and state transition function
+// Called with new State if timer times out
+// On first call to state, set the timer and assert the step output
+// Returns the next state for the state machine if timer still running
+// Timer set from table of assert and release times for each step
+// State and StatePrevious are global and maintained at high level
+int StateTimer(int StateNew) { 
+  static int           Timer;
+  int                  TimeLoop;
+  unsigned long        TimeNow;
+  static unsigned long TimePrevious = millis(); // initial on first entry to state timer
+  // time calculation for this pass through the loop
+  TimeNow = millis();
+  // Calculate time increment for this pass through loop()
+  TimeLoop = (unsigned int)(TimeNow - TimePrevious);
+  TimePrevious = TimeNow;  // always, either first or later pass
+
+  if (StatePrevious == State) { // timer running
+    Timer -= TimeLoop;
+    //Serial.print("State S1T, Timer ");
+    //Serial.print(Timer);
+    //Serial.println(" ms");
+    if (Timer <= 0) {
+      return StateNew;
+    } else {
+      return State;
+    }
+  }
+  // state change event
+  Timer = StepTimes[State];
+  StateEntryMsg(StatePrevious, State, Timer);
+  digitalWrite(StepPins[State], (uint8_t) StepForms[State]);
+  return State;
+}
+
+// common message function for all states
+void StateEntryMsg(int StatePrevious, int State, int Timer) {
+  Serial.print("Enter State ");
+  Serial.print(StateNames[State]);
+  Serial.print(" from ");
+  Serial.print(StateNames[StatePrevious]);
+  if (Timer == 0) {
+    Serial.println();
+  } else {
+    Serial.print(", timer ");
+    Serial.print(Timer);
+    Serial.println(" ms");
+  }
+}
+
+void setup() {  
+  Serial.begin(19200);
+  delay(1000);
+  Serial.println();
+  Serial.println("Sequencer startup");
+  
   // pin configuration
   pinMode(  KEYPIN, INPUT_PULLUP);
-  pinMode(STEP1PIN, OUTPUT);
-  pinMode(STEP2PIN, OUTPUT);
-  pinMode(STEP3PIN, OUTPUT);
-  pinMode(STEP4PIN, OUTPUT);
   pinMode(  LEDPIN, OUTPUT);
   pinMode(  RTSPIN, INPUT_PULLUP);
   pinMode(  CTSPIN, OUTPUT);
 
-  // pin state initialization
-  digitalWrite(STEP1PIN, (uint8_t) !STEP1ASSERTED);
-  digitalWrite(STEP2PIN, (uint8_t) !STEP2ASSERTED);
-  digitalWrite(STEP3PIN, (uint8_t) !STEP3ASSERTED);
-  digitalWrite(STEP4PIN, (uint8_t) !STEP4ASSERTED);
+  // step pin initialization
+  for (int StateIdx = 0; StateIdx < 10; StateIdx++) {
+    if (StepPins[StateIdx] == 0)  break; // skip undefined
+    if (StateNames[StateIdx].indexOf('R') == -1) break;
+    pinMode( StepPins[StateIdx], OUTPUT);
+    digitalWrite(StepPins[StateIdx], (uint8_t) !StepForms[StateIdx]);    
+  }
   digitalWrite(  LEDPIN, HIGH);
   digitalWrite(  CTSPIN, LOW);
-  Serial.begin(19200);
-
-  delay(1000);
-  Serial.println("Sequencer startup");
 }
 
-// this loop is entered seveal seconds after power on
-
+// this loop is entered seveal seconds after setup()
 void loop() {
-  // loop internal variables, need static because loop() exits
-  static int State = Rx;
-  static int StatePrevious = Rx;
   int Key;
-  //int RTS;
   //static int RTSPrevious;
-  static int Timer;
-  int TimeLoop;
-  unsigned long TimeNow;
-  static unsigned long TimePrevious = millis(); // initial on first entry to loop
 
-  // time calculation for this pass through the loop
-  // On entry to loop(), millis() is at about 5 seconds !?
-  TimeNow = millis();
+  // two methods of keying
+  bool KeySignal = !(bool) digitalRead(KEYPIN); 
+  bool RTSSignal = !(bool) digitalRead(RTSPIN);
+  Key = KeySignal || RTSSignal;
 
-  // Calculate time increment for this pass through loop()
-  TimeLoop = (unsigned int)(TimeNow - TimePrevious);
-
-  TimePrevious = TimeNow;  // always, either first or later pass
-
-  // Count up if key asserted, count down if not asserted
-  Key = digitalRead(KEYPIN);
-  //RTS = digitalRead(RTSPIN);
-
+  // State Machine
+  StatePrevious = State;
+  State = StateNext; 
   switch (State) {
     case Rx:
-      if (StatePrevious != Rx) {
-        Serial.print("State Rx: prev ");
-        Serial.print(StatePrevious);
-        Serial.print(", curr ");
-        Serial.print(State);
-        Serial.println();
+      if (StatePrevious != State) {
+        StateEntryMsg(StatePrevious, State, 0);
         digitalWrite(CTSPIN, LOW);
       }
       if (Key == KEYASSERTED) { // Keyed
         Serial.println("State Rx, key asserted");  
-        State = S1T;
+        StateNext =  S1T;
       } // keyed
-      StatePrevious = Rx;
       break;
 
+    // manage step 1 relay during Rx to Tx sequence
     case S1T:
-      //Serial.print("State S1T, Prev ");
-      //Serial.print(StatePrevious);
-      //Serial.print(" Curr ");
-      //Serial.print(State);
-      //Serial.println();
       if (Key != KEYASSERTED) {
-        State = S1R;
-        StatePrevious = S1T;  
+        StateNext = S1R;
         break;
       }
-      if (StatePrevious == S1T) { // timer running
-        Timer -= TimeLoop;
-        //Serial.print("State S1T, Timer ");
-        //Serial.print(Timer);
-        //Serial.println(" ms");
-        if (Timer <= 0) {
-          State = S2T;
-        }
-      } else { // state change event
-        digitalWrite(STEP1PIN, (uint8_t) STEP1ASSERTED);
-        Timer = AssertTimes[0];
-        Serial.print("S1T state entry, timer ");
-        Serial.print(Timer);
-        Serial.println(" ms");
-      }
-      StatePrevious = S1T;  
+      // 
+      StateNext = StateTimer(S2T); // next state either current or parameter
       break;
 
+    // manage step 2 relay during Rx to Tx sequence
     case S2T:
       if (Key != KEYASSERTED) {
-        StatePrevious = S2T;  
-        State = S2R;
+        StatePrevious = State;  
+        StateNext = S2R;
         break;
       }
-      if (StatePrevious == State) { // timer running
-        Timer -= TimeLoop;
-        //Serial.print("State S2T, timer ");
-        //Serial.print(Timer);
-        //Serial.println(" ms");
-        if (Timer <= 0) {
-          State = S3T;
-        }
-      } else { // key event
-        digitalWrite(STEP2PIN, (uint8_t) STEP2ASSERTED);
-        Timer = AssertTimes[1];
-        Serial.print("S2T state entry, timer ");
-        Serial.print(Timer);
-        Serial.println(" ms");
-      }
-      StatePrevious = S2T;  
+      StateNext = StateTimer(S3T);
       break;
 
+    // manage step 3 relay during Rx to Tx sequence
     case S3T:
       if (Key != KEYASSERTED) {
-        StatePrevious = S3T;
-        State = S3R;
+        StateNext =  S3R;
         break;
       }
-      if (StatePrevious == State) { // timer running
-        Timer -= TimeLoop;
-        //Serial.print("State S3T, timer ");
-        //Serial.print(Timer);
-        //Serial.println(" ms");
-        if (Timer <= 0) {
-          State = S4T;
-        }
-      } else { // key event
-        digitalWrite(STEP3PIN, (uint8_t) STEP3ASSERTED);
-        Timer = AssertTimes[2];
-        Serial.print("S3T state entry, timer ");
-        Serial.print(Timer);
-        Serial.println(" ms");
-      }
-      StatePrevious = S3T;  
+      StateNext = StateTimer(S4T);
       break;
 
+    // manage step 4 relay during Rx to Tx sequence
     case S4T:
       if (Key != KEYASSERTED) {
-        StatePrevious = S4T;  
-        State = S4R;
+        StateNext =  S4R;
         break;
       }
-      if (StatePrevious == State) { // timer running
-        Timer -= TimeLoop;
-        //Serial.print("State S4T, timer");
-        //Serial.print(Timer);
-        //Serial.println(" ms");
-        if (Timer <= 0) {
-          State = Tx;
-        }
-      } else { // key event
-        digitalWrite(STEP4PIN, (uint8_t) STEP4ASSERTED);
-        Timer = AssertTimes[3];
-        Serial.print("S4T state entry, timer ");
-        Serial.print(Timer);
-        Serial.println(" ms");
-      }
-      StatePrevious = S4T;  
+      StateNext =  StateTimer(Tx);
       break;
 
     case Tx:
       if (StatePrevious != State) {
-        Serial.print("State: Tx prev ");
-        Serial.print(StatePrevious);
-        Serial.print(", curr ");
-        Serial.print(State);
-        Serial.println();
+        StateEntryMsg(StatePrevious, State, 0);
         digitalWrite(CTSPIN, HIGH);
       }
       if (Key != KEYASSERTED) {
-        State = S4R;
+        StateNext =  S4R;
       }
-      StatePrevious = Tx;  
       break;
 
+    // manage step 4 relay during Tx to Rx sequence
     case S4R: // step 4 release timing
       if (Key == KEYASSERTED) {
-        StatePrevious = S4R;  
-        State = S4T;
+        StateNext =  S4T;
         break;
       }
-      if (StatePrevious == State) { // timer running, next step on timout
-        Timer -= TimeLoop;
-        //Serial.print("State S4R, Timer ");
-        //Serial.print(Timer);
-        //Serial.println(" ms");
-        if (Timer <= 0) {  
-          State = S3R;
-        }
-      } else { // key event, release the relay, set timer
-        digitalWrite(STEP4PIN, (uint8_t) !STEP4ASSERTED);
-        Timer = ReleaseTimes[3];
-        Serial.print("S4R state entry, timer ");
-        Serial.print(Timer);
-        Serial.println(" ms");
-      }
-      StatePrevious = S4R;
+      StateNext = StateTimer(S3R);
       break;
 
+    // manage step 3 relay during Tx to Rx sequence
     case S3R:
       if (Key == KEYASSERTED) {
-        StatePrevious = State;  
-        State = S3T;
+        StateNext =  S3T;
         break;
       }
-      if (StatePrevious == State) { // timer running, next step on timout
-        Timer -= TimeLoop;
-        //Serial.print("State S3R, Timer: ");
-        //Serial.print(Timer);
-        //Serial.println(" ms");
-        if (Timer <= 0) {
-          StatePrevious = State;  
-          State = S2R;
-        }
-      } else { // key event, release the relay, set timer
-        digitalWrite(STEP3PIN, (uint8_t) !STEP3ASSERTED);
-        Timer = ReleaseTimes[2];
-        Serial.print("S3R state entry, timer ");
-        Serial.print(Timer);
-        Serial.println(" ms");
-      }
-      StatePrevious = S3R;
+      StateNext = StateTimer(S2R);
       break;
 
+    // manage step 2 relay during Tx to Rx sequence
     case S2R:
       if (Key == KEYASSERTED) {
-        StatePrevious = State;  
-        State = S2T;
+        StateNext =  S2T;
         break;
       }
-      if (StatePrevious == State) { // timer running, next step on timout
-        Timer -= TimeLoop;
-        //Serial.print("State S2R, Timer: ");
-        //Serial.print(Timer);
-        //Serial.println(" ms");
-        if (Timer <= 0) {
-          StatePrevious = State;  
-          State = S1R;
-        }
-      } else { // key event, release the relay, set timer
-        digitalWrite(STEP2PIN, (uint8_t) !(STEP2ASSERTED == CLOSED));
-        Timer = ReleaseTimes[1];
-        Serial.print("S2R state entry, timer ");
-        Serial.print(Timer);
-        Serial.println(" ms");
-      }
-      StatePrevious = S2R;
+      StateNext = StateTimer(S1R);
       break;
 
+    // manage step 1 relay during Tx to Rx sequence
     case S1R:
       if (Key == KEYASSERTED) {
-        StatePrevious = State;  
-        State = S1T;
+        StateNext =  S1T;
         break;
       }
-      if (StatePrevious == State) { // timer running, next step on timout
-        Timer -= TimeLoop;
-        //Serial.print("State S1R, Timer: ");
-        //Serial.print(Timer);
-        //Serial.println(" ms");
-        if (Timer <= 0) {
-          StatePrevious = State;  
-          State = Rx;
-        }
-      } else { // key event, release the relay, set timer
-        digitalWrite(STEP1PIN, (uint8_t) !STEP1ASSERTED);
-        Timer = ReleaseTimes[0];
-        Serial.print("S1R state entry, timer ");
-        Serial.print(Timer);
-        Serial.println(" ms");
-      }
-      StatePrevious = S1R;
+      StateNext = StateTimer(Rx);
       break;
 
     default:
