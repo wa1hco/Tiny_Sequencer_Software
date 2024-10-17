@@ -111,19 +111,22 @@
 // Unused   |   |   |   |   |   |   |   |   |   |10 |   |   |   |   |   |   |   |   |   |   |
 //--------- |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
-//The following code 
+// Hardware Connections for ATTinyX16
+//      Pin Name  Port Name    SOIC-20,   Adafruit Tiny1616 breakout
+#define KEYPIN    PIN_PC3   // MCU 15,    JP4 8
+#define RTSPIN    PIN_PA1   // MCU 17,    JP4 6
+#define CTSPIN    PIN_PA2   // MCU 18,    JP4 5
+#define LEDPIN    PIN_PC0   // MCU 12,    JP2 10
+#define XTRA1PIN  PIN_PA4   // MCU  2,    JP2 1
+#define XTRA2PIN  PIN_PA5   // MCU  3,    JP2 2
+#define XTRA3PIN  PIN_PA6   // MCU  4,    JP2 3
+#define XTRA4PIN  PIN_PA7   // MCU  5,    JP2 4
+#define XTRA5PIN  PIN_PB5   // MCU  6,    JP2 5
+#define XTRA6PIN  PIN_PB4   // MCU  7,    JP2 6
 
-// define MCU pins for the ATTinyX16, SOIC-20, Adafruit Tiny1616 breakout
-#define KEYPIN    PIN_PC3 // MCU 15, Breakout JP4 8
-#define RTSPIN    PIN_PA1 // MCU 17, Breakout JP4 6
-#define CTSPIN    PIN_PA2 // MCU 18, Breakout JP4 5
-#define LEDPIN    PIN_PC0 // MCU 12, Breakout JP2 10
-#define XTRA1PIN  PIN_PA4
-#define XTRA2PIN  PIN_PA5
-#define XTRA3PIN  PIN_PA6
-#define XTRA4PIN  PIN_PA7
-#define XTRA5PIN  PIN_PB5
-#define XTRA6PIN  PIN_PB4
+#define LOOPTIMEINTERVAL 10 // msec
+
+// User Configuration
 
 // define states and related variables
 // Sequencer board design drives high to light the LED in the optoisolator, which causes the contacts to close,
@@ -133,23 +136,33 @@
 // User defines contact closure state when not keyed
 // User defines the step timing per the data sheet for the relay
 // delays specifiec in msec after key asserted
-enum           States { Rx,     S1T,     S2T,     S3T,     S4T,   Tx,     S4R,     S3R,     S2R,     S1R};
-String StateNames[] = {"Rx",   "S1T",   "S2T",   "S3T",   "S4T", "Tx",   "S4R",   "S3R",   "S2R",   "S1R"};
-int StepPins[]      = {   0, PIN_PC2, PIN_PC1, PIN_PB0, PIN_PA3,    0, PIN_PA3, PIN_PB0, PIN_PC1, PIN_PC2};
-int StepForms[]     = {   0,  CLOSED,  CLOSED,  CLOSED,  CLOSED,    0,    OPEN,    OPEN,    OPEN,    OPEN}; 
-int StepTimes[]     = {   0,     300,     300,     300,    300,     0,     200,     200,     200,     200};
-//  SOIC-20 Pin                   14       13       11      19              19       11       13       14
-//  Tiny1616 Breakout         JP4-12   JP4-10   JP2-10   JP4-4           JP4-4   JP2-10   JP4-10   JP4-12
+enum           States { Rx,     S1T,     S2T,     S3T,     S4T,   Tx,     S4R,     S3R,     S2R,     S1R};  // numbered 0 to 9
+String StateNames[] = {"Rx",   "S1T",   "S2T",   "S3T",   "S4T", "Tx",   "S4R",   "S3R",   "S2R",   "S1R"}; // for debug messages
+int StepPins[]      = {   0, PIN_PC2, PIN_PC1, PIN_PB0, PIN_PA3,    0, PIN_PA3, PIN_PB0, PIN_PC1, PIN_PC2}; // Hardware config
+//  SOIC-20 Pin                   14       13       11      19              19       11       13       14   // hardware config info
+//  Tiny1616 Breakout         JP4-12   JP4-10   JP2-10   JP4-4           JP4-4   JP2-10   JP4-10   JP4-12   // hardware config info
+int StepForms[]     = {   0,  CLOSED,  CLOSED,  CLOSED,  CLOSED,    0,    OPEN,    OPEN,    OPEN,    OPEN}; // user config
+int StepTimes[]     = {   0,     300,     300,     300,    300,     0,     200,     200,     200,     200}; // user config
 
 // define input pin polarity
-#define KEYASSERTED HIGH
+#define KEYASSERTED   LOW  
+#define RTSASSERTED   LOW
 
-#define LOOPTIMEINTERVAL 10 // msec
+// define keying characteristics
+#define KEYENABLE     true
+#define RTSENABLE     true
+#define TIMEOUTENABLE true
+#define TXTIMER       10000    // msec
+
+#define DEBUGLEVEL  1     // 
 
 // Global state machine variables
-static int StateNext = Rx;
-static int State     = Rx;
-static int StatePrevious;
+static int           StateNext = Rx;
+static int           State     = Rx;
+static int           StatePrevious;
+int                  TimeLoop;
+unsigned long        TimeNow;
+static unsigned long TimePrevious = millis(); // initialize
 
 // Commom state timer and state transition function
 // Called with new State if timer times out
@@ -158,92 +171,54 @@ static int StatePrevious;
 // Timer set from table of assert and release times for each step
 // State and StatePrevious are global and maintained at high level
 int StateTimer(int StateNew) { 
-  static int           Timer;
-  int                  TimeLoop;
-  unsigned long        TimeNow;
-  static unsigned long TimePrevious = millis(); // initial on first entry to state timer
-  // time calculation for this pass through the loop
-  TimeNow = millis();
-  // Calculate time increment for this pass through loop()
-  TimeLoop = (unsigned int)(TimeNow - TimePrevious);
-  TimePrevious = TimeNow;  // always, either first or later pass
+  static int           StepTimer;
 
-  if (StatePrevious == State) { // timer running
-    Timer -= TimeLoop;
-    //Serial.print("State S1T, Timer ");
-    //Serial.print(Timer);
+  if (StatePrevious != State) {  // initialize timer on state change event
+    StepTimer = StepTimes[State];
+    StateEntryMsg(StatePrevious, State, StepTimer);
+    digitalWrite(StepPins[State], (uint8_t) StepForms[State]);
+    return State;
+  } else {  // timer running, check for timeout
+    StepTimer -= TimeLoop;
+    //Serial.print("State S1T, StepTimer ");
+    //Serial.print(StepTimer);
     //Serial.println(" ms");
-    if (Timer <= 0) {
+    if (StepTimer <= 0) {
       return StateNew;
     } else {
       return State;
-    }
-  }
-  // state change event
-  Timer = StepTimes[State];
-  StateEntryMsg(StatePrevious, State, Timer);
-  digitalWrite(StepPins[State], (uint8_t) StepForms[State]);
-  return State;
-}
+    } // if timeout
+  } // if/else statechange
+} // StateStepTimer()
 
 // common message function for all states
-void StateEntryMsg(int StatePrevious, int State, int Timer) {
-  Serial.print("Enter State ");
-  Serial.print(StateNames[State]);
-  Serial.print(" from ");
-  Serial.print(StateNames[StatePrevious]);
-  if (Timer == 0) {
-    Serial.println();
-  } else {
-    Serial.print(", timer ");
-    Serial.print(Timer);
-    Serial.println(" ms");
-  }
-}
+void StateEntryMsg(int StatePrevious, int State, int StepTimer) {
+  if (DEBUGLEVEL > 0) {
+    Serial.print("Enter State ");
+    Serial.print(StateNames[State]);
+    Serial.print(" from ");
+    Serial.print(StateNames[StatePrevious]);
+    if (StepTimer == 0) {  // skip timer if not specified
+      Serial.println();
+    } else {
+      Serial.print(", timer ");
+      Serial.print(StepTimer);
+      Serial.println(" ms");
+    } // if timer
+  } // if debuglevel
+} // StateEntryMessage
 
-void setup() {  
-  Serial.begin(19200);
-  delay(1000);
-  Serial.println();
-  Serial.println("Sequencer startup");
-  
-  // pin configuration
-  pinMode(  KEYPIN, INPUT_PULLUP);
-  pinMode(  LEDPIN, OUTPUT);
-  pinMode(  RTSPIN, INPUT_PULLUP);
-  pinMode(  CTSPIN, OUTPUT);
-
-  // step pin initialization
-  for (int StateIdx = 0; StateIdx < 10; StateIdx++) {
-    if (StepPins[StateIdx] == 0)  break; // skip undefined
-    if (StateNames[StateIdx].indexOf('R') == -1) break;
-    pinMode( StepPins[StateIdx], OUTPUT);
-    digitalWrite(StepPins[StateIdx], (uint8_t) !StepForms[StateIdx]);    
-  }
-  digitalWrite(  LEDPIN, HIGH);
-  digitalWrite(  CTSPIN, LOW);
-}
-
-// this loop is entered seveal seconds after setup()
-void loop() {
-  int Key;
-  //static int RTSPrevious;
-
-  // two methods of keying
-  bool KeySignal = !(bool) digitalRead(KEYPIN); 
-  bool RTSSignal = !(bool) digitalRead(RTSPIN);
-  Key = KeySignal || RTSSignal;
-
+void StateMachine(bool Key, int TimeLoop) {
   // State Machine
   StatePrevious = State;
   State = StateNext; 
   switch (State) {
     case Rx:
       if (StatePrevious != State) {
-        StateEntryMsg(StatePrevious, State, 0);
-        digitalWrite(CTSPIN, LOW);
+        StateEntryMsg(StatePrevious, State, 0); // state debug with no timer
       }
-      if (Key == KEYASSERTED) { // Keyed
+
+      if (Key) { // Keyed
         Serial.println("State Rx, key asserted");  
         StateNext =  S1T;
       } // keyed
@@ -251,18 +226,16 @@ void loop() {
 
     // manage step 1 relay during Rx to Tx sequence
     case S1T:
-      if (Key != KEYASSERTED) {
+      if (!Key) {
         StateNext = S1R;
         break;
       }
-      // 
       StateNext = StateTimer(S2T); // next state either current or parameter
       break;
 
     // manage step 2 relay during Rx to Tx sequence
     case S2T:
-      if (Key != KEYASSERTED) {
-        StatePrevious = State;  
+      if (!Key) {
         StateNext = S2R;
         break;
       }
@@ -271,7 +244,7 @@ void loop() {
 
     // manage step 3 relay during Rx to Tx sequence
     case S3T:
-      if (Key != KEYASSERTED) {
+      if (!Key) {
         StateNext =  S3R;
         break;
       }
@@ -280,7 +253,7 @@ void loop() {
 
     // manage step 4 relay during Rx to Tx sequence
     case S4T:
-      if (Key != KEYASSERTED) {
+      if (!Key) {
         StateNext =  S4R;
         break;
       }
@@ -292,14 +265,16 @@ void loop() {
         StateEntryMsg(StatePrevious, State, 0);
         digitalWrite(CTSPIN, HIGH);
       }
-      if (Key != KEYASSERTED) {
+
+      if (!Key) {
         StateNext =  S4R;
+        digitalWrite(CTSPIN, LOW);
       }
       break;
 
     // manage step 4 relay during Tx to Rx sequence
     case S4R: // step 4 release timing
-      if (Key == KEYASSERTED) {
+      if (Key) {
         StateNext =  S4T;
         break;
       }
@@ -308,7 +283,7 @@ void loop() {
 
     // manage step 3 relay during Tx to Rx sequence
     case S3R:
-      if (Key == KEYASSERTED) {
+      if (Key) {
         StateNext =  S3T;
         break;
       }
@@ -317,7 +292,7 @@ void loop() {
 
     // manage step 2 relay during Tx to Rx sequence
     case S2R:
-      if (Key == KEYASSERTED) {
+      if (Key) {
         StateNext =  S2T;
         break;
       }
@@ -326,7 +301,7 @@ void loop() {
 
     // manage step 1 relay during Tx to Rx sequence
     case S1R:
-      if (Key == KEYASSERTED) {
+      if (Key) {
         StateNext =  S1T;
         break;
       }
@@ -337,5 +312,60 @@ void loop() {
       Serial.println("State: default, Error");
       break;
   }
+}
+void setup() {  
+  Serial.begin(19200);
+  delay(1000);
+  Serial.println();
+  Serial.println("Sequencer startup");
+  
+  // pin configuration
+  pinMode(  KEYPIN, INPUT_PULLUP); 
+  pinMode(  RTSPIN, INPUT_PULLUP);
+  pinMode(  LEDPIN, OUTPUT);
+  pinMode(  CTSPIN, OUTPUT);
+
+  // step pin initialization
+  for (int StateIdx = 0; StateIdx < 10; StateIdx++) {    // Loop over all states
+    if (StepPins[StateIdx] == 0)  break;                 // skip undefined states
+    if (StateNames[StateIdx].indexOf('R') != -1) break;  // skip if not receive transition
+    pinMode( StepPins[StateIdx], OUTPUT);                // config step pin
+    digitalWrite(StepPins[StateIdx], (uint8_t) StepForms[StateIdx]); // config as receive mode   
+  }
+  digitalWrite(  LEDPIN, HIGH);
+  digitalWrite(  CTSPIN, LOW);
+}
+
+// this loop is entered seveal seconds after setup()
+void loop() {
+  bool Key;        // used by state machine, combined from hardware and timeout
+  bool KeyTimeOut; // used by tx timout management in loop()
+  static int TxTimer; 
+
+  // time calculation for this pass through the loop
+  TimeNow = millis();
+  // Calculate time increment for this pass through loop()
+  TimeLoop = (unsigned int)(TimeNow - TimePrevious);
+  TimePrevious = TimeNow;  // always, either first or later pass
+
+  // two methods of keying 
+  bool KeyInput = KEYENABLE & !( (bool) digitalRead(KEYPIN) ^ (bool) KEYASSERTED); // hardware Key interface, high = asserted
+  bool RTSInput = RTSENABLE & !( (bool) digitalRead(RTSPIN) ^ (bool) KEYASSERTED); // USB serial key interface, high = asserted
+
+  if (!KeyInput & !RTSInput) {  // if unkeyed, reset the tx timeout timer
+    TxTimer = TXTIMER;
+    KeyTimeOut = false;
+  } else {
+    TxTimer -= TimeLoop;
+  }
+  
+  if (TxTimer <= 0) {
+    TxTimer = 0;               // keep timer from underflowing
+    KeyTimeOut = true;
+  }
+  Key = (KeyInput || RTSInput) & !(TIMEOUTENABLE & KeyTimeOut);  // either key in or RTs and not timeout
+
+  StateMachine(Key, TimeLoop);
+
   delay(LOOPTIMEINTERVAL);
 }
