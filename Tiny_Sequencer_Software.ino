@@ -111,6 +111,20 @@
 // Unused   |   |   |   |   |   |   |   |   |   |10 |   |   |   |   |   |   |   |   |   |   |
 //--------- |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
+// Serial Command Menu
+// Code Name and Version
+// List current parameters
+//   Step timing assert and release
+//   Step polarity NO or NC
+//   Key Polarity High or Low
+//   RTS used for Key  true or false
+//   CTS used for Tx ready
+//   Timeout on Tx True or False
+//   Timeout Value
+
+#include <SerialMenu.hpp>
+SerialMenu& menu = SerialMenu::get();
+
 // Hardware Connections for ATTinyX16
 //      Pin Name  Port Name    SOIC-20,   Adafruit Tiny1616 breakout
 #define KEYPIN    PIN_PC3   // MCU 15,    JP4 8
@@ -164,6 +178,69 @@ int                  TimeLoop;
 unsigned long        TimeNow;
 static unsigned long TimePrevious = millis(); // initialize
 
+void setup() {  
+  Serial.begin(19200);
+
+  Serial.println();
+  while (!Serial){};
+  Serial.println("Sequencer startup");
+
+  menu.load(nullptr, 0);
+  menu.show();
+
+  // pin configuration
+  pinMode(  KEYPIN, INPUT_PULLUP); 
+  pinMode(  RTSPIN, INPUT_PULLUP);
+  pinMode(  LEDPIN, OUTPUT);
+  pinMode(  CTSPIN, OUTPUT);
+
+  // step pin initialization
+  for (int StateIdx = 0; StateIdx < 10; StateIdx++) {    // Loop over all states
+    if (StepPins[StateIdx] == 0)  break;                 // skip undefined states
+    if (StateNames[StateIdx].indexOf('R') != -1) break;  // skip if not receive transition
+    pinMode( StepPins[StateIdx], OUTPUT);                // config step pin
+    digitalWrite(StepPins[StateIdx], (uint8_t) StepForms[StateIdx]); // config as receive mode   
+  }
+  digitalWrite(  LEDPIN, HIGH);
+  digitalWrite(  CTSPIN, LOW);
+}
+
+// this loop is entered seveal seconds after setup()
+void loop() {
+
+  menu.run(1);
+
+  bool Key;        // used by state machine, combined from hardware and timeout
+  bool KeyTimeOut; // used by tx timout management in loop()
+  static int TxTimer; 
+
+  // time calculation for this pass through the loop
+  TimeNow = millis();
+  // Calculate time increment for this pass through loop()
+  TimeLoop = (unsigned int)(TimeNow - TimePrevious);
+  TimePrevious = TimeNow;  // always, either first or later pass
+
+  // two methods of keying 
+  bool KeyInput = KEYENABLE & !( (bool) digitalRead(KEYPIN) ^ (bool) KEYASSERTED); // hardware Key interface, high = asserted
+  bool RTSInput = RTSENABLE & !( (bool) digitalRead(RTSPIN) ^ (bool) KEYASSERTED); // USB serial key interface, high = asserted
+
+  if (!KeyInput & !RTSInput) {  // if unkeyed, reset the tx timeout timer
+    TxTimer = TXTIMER;
+    KeyTimeOut = false;
+  } else {
+    TxTimer -= TimeLoop;
+  }
+  
+  if (TxTimer <= 0) {
+    TxTimer = 0;               // keep timer from underflowing
+    KeyTimeOut = true;
+  }
+  Key = (KeyInput || RTSInput) & !(TIMEOUTENABLE & KeyTimeOut);  // either key in or RTs and not timeout
+
+  StateMachine(Key, TimeLoop);
+
+  delay(LOOPTIMEINTERVAL);
+}
 // Commom state timer and state transition function
 // Called with new State if timer times out
 // On first call to state, set the timer and assert the step output
@@ -312,60 +389,4 @@ void StateMachine(bool Key, int TimeLoop) {
       Serial.println("State: default, Error");
       break;
   }
-}
-void setup() {  
-  Serial.begin(19200);
-  delay(1000);
-  Serial.println();
-  Serial.println("Sequencer startup");
-  
-  // pin configuration
-  pinMode(  KEYPIN, INPUT_PULLUP); 
-  pinMode(  RTSPIN, INPUT_PULLUP);
-  pinMode(  LEDPIN, OUTPUT);
-  pinMode(  CTSPIN, OUTPUT);
-
-  // step pin initialization
-  for (int StateIdx = 0; StateIdx < 10; StateIdx++) {    // Loop over all states
-    if (StepPins[StateIdx] == 0)  break;                 // skip undefined states
-    if (StateNames[StateIdx].indexOf('R') != -1) break;  // skip if not receive transition
-    pinMode( StepPins[StateIdx], OUTPUT);                // config step pin
-    digitalWrite(StepPins[StateIdx], (uint8_t) StepForms[StateIdx]); // config as receive mode   
-  }
-  digitalWrite(  LEDPIN, HIGH);
-  digitalWrite(  CTSPIN, LOW);
-}
-
-// this loop is entered seveal seconds after setup()
-void loop() {
-  bool Key;        // used by state machine, combined from hardware and timeout
-  bool KeyTimeOut; // used by tx timout management in loop()
-  static int TxTimer; 
-
-  // time calculation for this pass through the loop
-  TimeNow = millis();
-  // Calculate time increment for this pass through loop()
-  TimeLoop = (unsigned int)(TimeNow - TimePrevious);
-  TimePrevious = TimeNow;  // always, either first or later pass
-
-  // two methods of keying 
-  bool KeyInput = KEYENABLE & !( (bool) digitalRead(KEYPIN) ^ (bool) KEYASSERTED); // hardware Key interface, high = asserted
-  bool RTSInput = RTSENABLE & !( (bool) digitalRead(RTSPIN) ^ (bool) KEYASSERTED); // USB serial key interface, high = asserted
-
-  if (!KeyInput & !RTSInput) {  // if unkeyed, reset the tx timeout timer
-    TxTimer = TXTIMER;
-    KeyTimeOut = false;
-  } else {
-    TxTimer -= TimeLoop;
-  }
-  
-  if (TxTimer <= 0) {
-    TxTimer = 0;               // keep timer from underflowing
-    KeyTimeOut = true;
-  }
-  Key = (KeyInput || RTSInput) & !(TIMEOUTENABLE & KeyTimeOut);  // either key in or RTs and not timeout
-
-  StateMachine(Key, TimeLoop);
-
-  delay(LOOPTIMEINTERVAL);
 }
