@@ -111,6 +111,8 @@
 // Unused   |   |   |   |   |   |   |   |   |   |10 |   |   |   |   |   |   |   |   |   |   |
 //--------- |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
+#include <EEPROM.h>
+
 // Hardware Connections for ATTinyX16
 //      Pin Name  Port Name    SOIC-20,   Adafruit Tiny1616 breakout
 #define KEYPIN    PIN_PC3   // MCU 15,    JP4 8
@@ -138,21 +140,38 @@
 // delays specifiec in msec after key asserted
 enum           States { Rx,     S1T,     S2T,     S3T,     S4T,   Tx,     S4R,     S3R,     S2R,     S1R};  // numbered 0 to 9
 String StateNames[] = {"Rx",   "S1T",   "S2T",   "S3T",   "S4T", "Tx",   "S4R",   "S3R",   "S2R",   "S1R"}; // for debug messages
-int StepPins[]      = {   0, PIN_PC2, PIN_PC1, PIN_PB0, PIN_PA3,    0, PIN_PA3, PIN_PB0, PIN_PC1, PIN_PC2}; // Hardware config
-//  SOIC-20 Pin                   14       13       11      19              19       11       13       14   // hardware config info
-//  Tiny1616 Breakout         JP4-12   JP4-10   JP2-10   JP4-4           JP4-4   JP2-10   JP4-10   JP4-12   // hardware config info
-int StepForms[]     = {   0,  CLOSED,  CLOSED,  CLOSED,  CLOSED,    0,    OPEN,    OPEN,    OPEN,    OPEN}; // user config
-int StepTimes[]     = {   0,     300,     300,     300,    300,     0,     200,     200,     200,     200}; // user config
+uint8_t StepIndex[] = { 99,       0,       1,       2,       3,   99,       3,       2,       1,       0 }; // step index for each state
 
-// define input pin polarity
-#define KEYASSERTED   LOW  
-#define RTSASSERTED   LOW
+// Steps are numbered from 0 to 3
+int StepPins[]      = {PIN_PC2, PIN_PC1, PIN_PB0, PIN_PA3}; // Hardware config
+//  SOIC-20 Pin             14       13       11       19   // hardware config info  
+//  Tiny1616 Breakout   JP4-12   JP4-10   JP2-10    JP4-4   // hardware config info
 
-// define keying characteristics
-#define KEYENABLE     true
-#define RTSENABLE     true
-#define TIMEOUTENABLE true
-#define TXTIMER       10000    // msec, initial value
+// Configuration structure used for program and EEPROM
+struct sConfig {
+  struct sStep {
+    uint8_t Form;
+    uint8_t Assert;
+    uint8_t Release;
+  } Step[4]; 
+  struct sKey {
+    uint8_t Enable;
+    uint8_t Polarity;
+  } Key;
+  struct sRTS {
+    uint8_t Enable;
+    uint8_t Polarity;
+  } RTS;
+  struct sCTS {
+    uint8_t Enable;
+    uint8_t Polarity;
+  } CTS;
+  struct sTimer {
+    uint8_t Enable;
+    unsigned int Time;
+  } Timer;
+  int Check;
+} Config;
 
 #define DEBUGLEVEL  1     // 
 
@@ -160,9 +179,16 @@ int StepTimes[]     = {   0,     300,     300,     300,    300,     0,     200, 
 static int           StateNext = Rx;
 static int           State     = Rx;
 static int           StatePrevious;
+uint8_t              StateCnt  = sizeof(States);
 int                  TimeLoop;
 unsigned long        TimeNow;
 static unsigned long TimePrevious = millis(); // initialize
+
+// function prototypes
+void StateMachine(bool Key, int TimeLoop);
+void printConfig(void);
+void printEEPROM(void);
+void initConfigStruct(void);
 
 // Commom state timer and state transition function
 // Called with new State if timer times out
@@ -170,13 +196,45 @@ static unsigned long TimePrevious = millis(); // initialize
 // Returns the next state for the state machine if timer still running
 // Timer set from table of assert and release times for each step
 // State and StatePrevious are global and maintained at high level
-int StateTimer(int StateNew) { 
-  static int           StepTimer;
 
+// called from each state of state machine every time through loop()
+// detect is this is the first call after state change
+//   initialize the timer based on state
+//   run the timer on the current state
+// when timer completes, return the new state
+int RxStateTimer(int StateNew) {  // states are 0, 1, 2, 3
+  static int StepTimer;
+  uint8_t StepIdx = StepIndex[State]; // convert from state number to Step structure index
   if (StatePrevious != State) {  // initialize timer on state change event
-    StepTimer = StepTimes[State];
+    StepTimer = Config.Step[StepIdx].Release;
     StateEntryMsg(StatePrevious, State, StepTimer);
-    digitalWrite(StepPins[State], (uint8_t) StepForms[State]);
+    digitalWrite(StepPins[StepIdx], (uint8_t) Config.Step[StepIdx].Form);
+    return State;
+  } else {  // timer running, check for timeout
+    StepTimer -= TimeLoop;
+    //Serial.print("State S1T, StepTimer ");
+    //Serial.print(StepTimer);
+    //Serial.println(" ms");
+    if (StepTimer <= 0) {
+      return StateNew;
+    } else {
+      return State;
+    } // if timeout
+  } // if/else statechange
+} // StateStepTimer()
+
+// called from each state of state machine every time through loop()
+// detect is this is the first call after state change
+//   initialize the timer based on state
+//   run the timer on the current state
+// when timer completes, return the new state
+int TxStateTimer(int StateNew) {  // states are 0, 1, 2, 3
+  static int StepTimer;
+  uint8_t StepIdx = StepIndex[State]; // map 1:4 to 0:3
+  if (StatePrevious != State) {  // initialize timer on state change event
+    StepTimer = Config.Step[StepIdx].Assert;
+    StateEntryMsg(StatePrevious, State, StepTimer);
+    digitalWrite(StepPins[StepIdx], (uint8_t) !Config.Step[StepIdx].Form);
     return State;
   } else {  // timer running, check for timeout
     StepTimer -= TimeLoop;
@@ -193,6 +251,7 @@ int StateTimer(int StateNew) {
 
 // common message function for all states
 void StateEntryMsg(int StatePrevious, int State, int StepTimer) {
+  uint8_t StepIdx = StepIndex[State];
   if (DEBUGLEVEL > 0) {
     Serial.print("Enter State ");
     Serial.print(StateNames[State]);
@@ -203,19 +262,25 @@ void StateEntryMsg(int StatePrevious, int State, int StepTimer) {
     } else {
       Serial.print(", timer ");
       Serial.print(StepTimer);
-      Serial.println(" ms");
+      Serial.print(" ms, Pin ");
+      Serial.print(StepPins[StepIdx]);
+      Serial.print(", Form ");
+      if (State < 5) {
+        Serial.print(!Config.Step[StepIdx].Form);
+      } else {
+        Serial.print(Config.Step[StepIdx].Form);
+      }
+      Serial.println();
     } // if timer
   } // if debuglevel
 } // StateEntryMessage
-
-void StateMachine(bool Key, int TimeLoop);
-void printConfig();
 
 void setup() {  
   Serial.begin(19200);
   delay(1000);
   Serial.println();
   Serial.println("Sequencer startup");
+  initConfigStruct();
   printConfig();
 
   // pin configuration
@@ -225,12 +290,10 @@ void setup() {
   pinMode(  CTSPIN, OUTPUT);
 
   // step pin initialization
-  for (int StateIdx = 0; StateIdx < 10; StateIdx++) {    // Loop over all states
-    if (StepPins[StateIdx] == 0)  break;                 // skip undefined states
-    if (StateNames[StateIdx].indexOf('R') != -1) break;  // skip if not receive transition
-    pinMode( StepPins[StateIdx], OUTPUT);                // config step pin
-    digitalWrite(StepPins[StateIdx], (uint8_t) StepForms[StateIdx]); // config as receive mode   
-  }
+  for (int StepIdx = 0; StepIdx < 4; StepIdx++) {    // Loop over sequencer Steps
+    pinMode(     StepPins[StepIdx], OUTPUT);                // config step pin
+    digitalWrite(StepPins[StepIdx], (uint8_t) Config.Step[StepIdx].Form); // config as receive mode   
+  }  
   digitalWrite(  LEDPIN, HIGH);
   digitalWrite(  CTSPIN, LOW);
 }
@@ -239,7 +302,7 @@ void setup() {
 void loop() {
   bool Key;        // used by state machine, combined from hardware and timeout
   bool KeyTimeOut; // used by tx timout management in loop()
-  static int TxTimer; 
+  static long TxTimer_msec; 
 
   // time calculation for this pass through the loop
   TimeNow = millis();
@@ -248,81 +311,53 @@ void loop() {
   TimePrevious = TimeNow;  // always, either first or later pass
 
   // two methods of keying 
-  bool KeyInput = KEYENABLE & !( (bool) digitalRead(KEYPIN) ^ (bool) KEYASSERTED); // hardware Key interface, high = asserted
-  bool RTSInput = RTSENABLE & !( (bool) digitalRead(RTSPIN) ^ (bool) KEYASSERTED); // USB serial key interface, high = asserted
+  bool KeyInput = Config.Key.Enable & !( (bool) digitalRead(KEYPIN) ^ (bool) Config.Key.Polarity); // hardware Key interface, high = asserted
+  bool RTSInput = Config.RTS.Enable & !( (bool) digitalRead(RTSPIN) ^ (bool) Config.RTS.Polarity); // USB serial key interface, high = asserted
 
   if (!KeyInput & !RTSInput) {  // if unkeyed, reset the tx timeout timer
-    TxTimer = TXTIMER;
+    TxTimer_msec = (long) Config.Timer.Time * 1000;
     KeyTimeOut = false;
   } else {
-    TxTimer -= TimeLoop;
+    TxTimer_msec -= (long) TimeLoop;
   }
   
-  if (TxTimer <= 0) {
-    TxTimer = 0;               // keep timer from underflowing
+  if (TxTimer_msec <= 0) {
+    TxTimer_msec = 0;               // keep timer from underflowing
     KeyTimeOut = true;
   }
-  Key = (KeyInput || RTSInput) & !(TIMEOUTENABLE & KeyTimeOut);  // either key in or RTs and not timeout
+  Key = (KeyInput || RTSInput) & !(Config.Timer.Enable & KeyTimeOut);  // either key in or RTs and not timeout
 
   StateMachine(Key, TimeLoop);
 
   delay(LOOPTIMEINTERVAL);
 }
 
-void printConfig(void) {
-  Serial.println("Step Form TxTime RxTime");
-  for(int ii = 1; ii < 5; ii++) {
-    Serial.print("   ");
-    Serial.print(ii);
-    Serial.print("   ");
-    if (StepForms[ii] == 1) {
-      Serial.print("NO");
-    } else {
-      Serial.print("NC");
-    }
-    Serial.print("    ");
-    Serial.print(StepTimes[ii]);
-    Serial.print("    ");
-    Serial.print(StepTimes[ii+5]);
-    Serial.println();
-  }
-  Serial.print(" Key   ");
-  if (KEYENABLE == true){
-    Serial.print("Enabled");
-  } else {
-    Serial.print("Disabled");
-  }
-  Serial.print(", Asserted = ");
-  if (KEYASSERTED == HIGH) {
-    Serial.print("High");
-  } else {
-    Serial.print("Low");
-    Serial.println();
-  }
-  Serial.print(" RTS   ");
-  if (RTSENABLE == true){
-    Serial.print("Enabled");
-  } else {
-    Serial.print("Disabled");
-  }
-  Serial.print(", Asserted = ");
-  if (RTSASSERTED == HIGH) {
-    Serial.print("High");
-  } else {
-    Serial.print("Low");
-    Serial.println();
-  }
-  Serial.print(" Timer ");
-  if (TIMEOUTENABLE == true) {
-    Serial.print("Enabled");
-  } else {
-    Serial.print("Disabled");
-  }
-  Serial.print(", Time ");
-  Serial.print(TXTIMER/1000);
-  Serial.println(" sec");
+// Default configuration, loaded from Setup()
+void initConfigStruct(void) {
+  Config.Step[0].Form    = OPEN; // open on Rx 
+  Config.Step[0].Assert  = 250;  // msec relay assert time
+  Config.Step[0].Release = 200;  // msec relay release time
+  Config.Step[1].Form    = OPEN;
+  Config.Step[1].Assert  = 251;
+  Config.Step[1].Release = 201;
+  Config.Step[2].Form    = OPEN;
+  Config.Step[2].Assert  = 252;
+  Config.Step[2].Release = 202;
+  Config.Step[3].Form    = OPEN;
+  Config.Step[3].Assert  = 253;
+  Config.Step[3].Release = 203;
+  Config.Key.Enable      = true; // Hardware key line
+  Config.Key.Polarity    = LOW;  // Ground to key
+  Config.RTS.Enable      = true; // Serial control signal
+  Config.RTS.Polarity    = LOW;  // voltage on MCU pin, (normally high)
+  Config.CTS.Enable      = true; // Low mean tx
+  Config.CTS.Polarity    = LOW;  // voltage on MCU pin, (normally high)
+  Config.Timer.Enable    = true;
+  Config.Timer.Time      = 10;   // sec 
+  Config.Check           = 0;    // CRC-16
 }
 
+// States are number 0 to 9 by an enum function
 void StateMachine(bool Key, int TimeLoop) {
   // State Machine
   StatePrevious = State;
@@ -345,7 +380,7 @@ void StateMachine(bool Key, int TimeLoop) {
         StateNext = S1R;
         break;
       }
-      StateNext = StateTimer(S2T); // next state either current or parameter
+      StateNext = TxStateTimer(S2T); // next state either current or parameter
       break;
 
     // manage step 2 relay during Rx to Tx sequence
@@ -354,7 +389,7 @@ void StateMachine(bool Key, int TimeLoop) {
         StateNext = S2R;
         break;
       }
-      StateNext = StateTimer(S3T);
+      StateNext = TxStateTimer(S3T);
       break;
 
     // manage step 3 relay during Rx to Tx sequence
@@ -363,7 +398,7 @@ void StateMachine(bool Key, int TimeLoop) {
         StateNext =  S3R;
         break;
       }
-      StateNext = StateTimer(S4T);
+      StateNext = TxStateTimer(S4T);
       break;
 
     // manage step 4 relay during Rx to Tx sequence
@@ -372,7 +407,7 @@ void StateMachine(bool Key, int TimeLoop) {
         StateNext =  S4R;
         break;
       }
-      StateNext =  StateTimer(Tx);
+      StateNext =  TxStateTimer(Tx);
       break;
 
     case Tx:
@@ -393,7 +428,7 @@ void StateMachine(bool Key, int TimeLoop) {
         StateNext =  S4T;
         break;
       }
-      StateNext = StateTimer(S3R);
+      StateNext = RxStateTimer(S3R);
       break;
 
     // manage step 3 relay during Tx to Rx sequence
@@ -402,7 +437,7 @@ void StateMachine(bool Key, int TimeLoop) {
         StateNext =  S3T;
         break;
       }
-      StateNext = StateTimer(S2R);
+      StateNext = RxStateTimer(S2R);
       break;
 
     // manage step 2 relay during Tx to Rx sequence
@@ -411,7 +446,7 @@ void StateMachine(bool Key, int TimeLoop) {
         StateNext =  S2T;
         break;
       }
-      StateNext = StateTimer(S1R);
+      StateNext = RxStateTimer(S1R);
       break;
 
     // manage step 1 relay during Tx to Rx sequence
@@ -420,11 +455,77 @@ void StateMachine(bool Key, int TimeLoop) {
         StateNext =  S1T;
         break;
       }
-      StateNext = StateTimer(Rx);
+      StateNext = RxStateTimer(Rx);
       break;
 
     default:
       Serial.println("State: default, Error");
       break;
   }
+}
+// EEPROM functions
+// read, write and update state
+// verify contents
+//   Step form, assert, release
+//   Key enable, polarity
+//   RTS enable, polarity
+//   CTS enable, polarity
+//   Timer enable, time
+// write config from program constants, set checksum
+// update config after user input, set checksum
+// read config when needed
+// check config checksum
+// 
+void printConfig(void) {
+  Serial.println("Step Form TxTime RxTime");
+  for(int ii = 0; ii < 4; ii++) {
+    Serial.print("   ");
+    Serial.print(ii);
+    Serial.print("   ");
+    if (Config.Step[ii].Form == 1) {
+      Serial.print("NO");
+    } else {
+      Serial.print("NC");
+    }
+    Serial.print("    ");
+    Serial.print(Config.Step[ii].Assert);
+    Serial.print("    ");
+    Serial.print(Config.Step[ii].Release);
+    Serial.println();
+  }
+  Serial.print(" Key   ");
+  if (Config.Key.Enable == true){
+    Serial.print("Enabled");
+  } else {
+    Serial.print("Disabled");
+  }
+  Serial.print(", Asserted = ");
+  if (Config.Key.Polarity == HIGH) {
+    Serial.print("High");
+  } else {
+    Serial.print("Low");
+    Serial.println();
+  }
+  Serial.print(" RTS   ");
+  if (Config.RTS.Enable == true){
+    Serial.print("Enabled");
+  } else {
+    Serial.print("Disabled");
+  }
+  Serial.print(", Asserted = ");
+  if (Config.RTS.Polarity == HIGH) {
+    Serial.print("High");
+  } else {
+    Serial.print("Low");
+    Serial.println();
+  }
+  Serial.print(" Timer ");
+  if (Config.Timer.Enable == true) {
+    Serial.print("Enabled");
+  } else {
+    Serial.print("Disabled");
+  }
+  Serial.print(", Time ");
+  Serial.print(Config.Timer.Time);
+  Serial.println(" sec");
 }
