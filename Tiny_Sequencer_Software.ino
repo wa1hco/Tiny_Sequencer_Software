@@ -112,6 +112,10 @@
 //--------- |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 #include <EEPROM.h>
+#include <CRC16.h>
+#include <CRC.h>
+
+#define DEBUGLEVEL  1     // 
 
 // Hardware Connections for ATTinyX16
 //      Pin Name  Port Name    SOIC-20,   Adafruit Tiny1616 breakout
@@ -126,28 +130,24 @@
 #define XTRA5PIN  PIN_PB5   // MCU  6,    JP2 5
 #define XTRA6PIN  PIN_PB4   // MCU  7,    JP2 6
 
-#define LOOPTIMEINTERVAL 10 // msec
-
-// User Configuration
-
+// Hardware Configuration, how the hardware connects to software
 // Sequencer board design drives high to light the LED in the optoisolator, which causes the contacts to close,
 // Optoisolator LED drives gates of back to back MOSFETS, so normally open
 // define hardware design of sequencer contacts in terms of MCU output pin
-#define CLOSED HIGH  // drive MCU pin high to assert
+#define CLOSED HIGH  // drive MCU pin high to close output contacts on optoisolator
 #define OPEN    LOW
 
-// User defines contact closure state when in Rx mode not keyed
-// User defines the step timing per the data sheet for the relay
-// delays specifiec in msec after key asserted
-enum           States { Rx,     S1T,     S2T,     S3T,     S4T,   Tx,     S4R,     S3R,     S2R,     S1R};  // numbered 0 to 9
-String StateNames[] = {"Rx",   "S1T",   "S2T",   "S3T",   "S4T", "Tx",   "S4R",   "S3R",   "S2R",   "S1R"}; // for debug messages
-uint8_t StepIndex[] = { 99,       0,       1,       2,       3,   99,       3,       2,       1,       0 }; // step index for each state
-
-// Hardware design defines how the optoisolators connect to MCU, 
+// Hardware design 
+// defines how the optoisolators connect to MCU, 
 // Steps are numbered from 0 to 3
 int StepPins[]      = {PIN_PC2, PIN_PC1, PIN_PB0, PIN_PA3}; // Hardware config in software terms
 //  SOIC-20 Pin             14       13       11       19   // MCU hardware config board terms
 //  Tiny1616 Breakout   JP4-12   JP4-10   JP2-10    JP4-4   // Breakout board config
+
+// State Machine definitions
+enum           States { Rx,     S1T,     S2T,     S3T,     S4T,   Tx,     S4R,     S3R,     S2R,     S1R};  // numbered 0 to 9
+String StateNames[] = {"Rx",   "S1T",   "S2T",   "S3T",   "S4T", "Tx",   "S4R",   "S3R",   "S2R",   "S1R"}; // for debug messages
+uint8_t StepIndex[] = { 99,       0,       1,       2,       3,   99,       3,       2,       1,       0 }; // map states to step index
 
 // Configuration structure used for program and EEPROM
 struct sConfig {
@@ -172,10 +172,49 @@ struct sConfig {
     uint8_t Enable;    // 0 disabled, 1 enabled
     unsigned int Time; // sec
   } Timer;
-  int Check;
-} Config;
+  uint16_t CRC16;
+} ;
+sConfig Config;
+sConfig ConfigTmp;
 
-#define DEBUGLEVEL  1     // 
+// Default configuration, executed from Setup(), if necessary
+// User defines contact closure state when in Rx mode not keyed
+// User defines the step timing per the data sheet for the relay
+// delays specifiec in msec after key asserted
+void initConfigStruct(void) {
+  Config.Step[0].Polarity = OPEN; // open on Rx 
+  Config.Step[0].Assert   = 250;  // msec relay assert time
+  Config.Step[0].Release  = 200;  // msec relay release time
+  Config.Step[1].Polarity = OPEN;
+  Config.Step[1].Assert   = 251;
+  Config.Step[1].Release  = 201;
+  Config.Step[2].Polarity = OPEN;
+  Config.Step[2].Assert   = 252;
+  Config.Step[2].Release  = 202;
+  Config.Step[3].Polarity = OPEN;
+  Config.Step[3].Assert   = 253;
+  Config.Step[3].Release  = 203;
+  Config.Key.Enable       = true; // Hardware key line
+  Config.Key.Polarity     = LOW;  // Ground to key
+  Config.RTS.Enable       = true; // Serial control signal
+  Config.RTS.Polarity     = LOW;  // voltage on MCU pin, (normally high)
+  Config.CTS.Enable       = true; // Low mean tx
+  Config.CTS.Polarity     = LOW;  // voltage on MCU pin, (normally high)
+  Config.Timer.Enable     = true;
+  Config.Timer.Time       = 10;   // sec 
+  Config.CRC16            = calcCRC16( (uint8_t*) &Config, sizeof(Config) - sizeof(Config.CRC16));
+}
+
+// Write Config to EEPROM
+void WriteConfig(int address, sConfig Config){
+  EEPROM.put(address, Config);
+}
+
+// Read Config from EEPROM
+sConfig ReadConfig(int address){
+  sConfig Config;
+  return EEPROM.get(address, Config);
+}
 
 // Global state machine variables
 static int           StateNext = Rx;
@@ -192,32 +231,34 @@ void printConfig(void);
 void printEEPROM(void);
 void initConfigStruct(void);
 
-// Commom state timer and state transition function
-// Called with new State if timer times out
-// On first call to state, set the timer and assert the step output
-// Returns the next state for the state machine if timer still running
-// Timer set from table of assert and release times for each step
-// State and StatePrevious are global and maintained at high level
+#define LOOPTIMEINTERVAL 10 // msec
 
-// called from each state of state machine every time through loop()
+// Commom state timer and state transition function
+// Called from each state of state machine every time through loop()
+// On first call to state, set the timer and assert the step output
+// Returns State for next pass, either same State or StateNew
+// Leave State unchanged if timer still running
+// StateNew returned when time completes 
+// Timer set from table of assert and release times for each step
+
 // detect is this is the first call after state change
 //   initialize the timer based on state
 //   run the timer on the current state
 // when timer completes, return the new state
 int StateTimer(int StateNew) {  // states are 0, 1, 2, 3
   static int StepTimer;
-  uint8_t StepIdx = StepIndex[State]; // convert from state number to Step structure index
-  if (StatePrevious != State) {  // initialize timer on state change event
-    StepTimer = Config.Step[StepIdx].Release;
-    StateEntryMsg(StatePrevious, State, StepTimer);
-    if ((State >= 1) & (State <=4)) { // States for transition from Rx to Tx 
+  uint8_t StepIdx = StepIndex[State];                // convert from state number to Step structure index
+  if (StatePrevious != State) {                      // State change event
+    StepTimer = Config.Step[StepIdx].Release;        // initialize the timer
+    StateEntryMsg(StatePrevious, State, StepTimer);  // debug message
+    if ((State >= 1) & (State <=4)) {                // States for transition from Rx to Tx 
       digitalWrite(StepPins[StepIdx], (uint8_t) !Config.Step[StepIdx].Polarity);
     }
-    if ((State >= 6) & (State <= 9)) {  // States for transition from Tx to Rx
+    if ((State >= 6) & (State <= 9)) {               // States for transition from Tx to Rx
       digitalWrite(StepPins[StepIdx], (uint8_t) Config.Step[StepIdx].Polarity);
     }
     return State;
-  } else {  // timer running, check for timeout
+  } else {                                           // timer running, check for timeout
     StepTimer -= TimeLoop;
     //Serial.print("State S1T, StepTimer ");
     //Serial.print(StepTimer);
@@ -262,15 +303,36 @@ void setup() {
   delay(1000);
   Serial.println();
   Serial.println("Sequencer startup");
-  initConfigStruct();
-  printConfig();
 
-  // pin configuration
+  // User Configuration Management
+  // Read EEPROM
+  Config = ReadConfig( 0 );
+  uint16_t CRCTest = calcCRC16((uint8_t*) &Config, sizeof(Config) - sizeof(Config.CRC16));
+  if (CRCTest == Config.CRC16) {
+    Serial.println("setup, CRC match");
+  } else {
+    Serial.print("setup: CRC mismatch ");
+    Serial.print(CRCTest);
+    Serial.print(" ");
+    Serial.print(Config.CRC16);
+    Serial.print(" write defaults to config");
+    Serial.println();
+
+    initConfigStruct();
+    WriteConfig(0, Config);
+  } // if CRC match
+
+  // Verify checksum
+  //  good, copy to Config structure
+  //  bad, initialize Config structure, write structure to EEPROM
+  //initConfigStruct();
+  //printConfig();
+
+  // Hardware configuration
   pinMode(  KEYPIN, INPUT_PULLUP); 
   pinMode(  RTSPIN, INPUT_PULLUP);
   pinMode(  LEDPIN, OUTPUT);
   pinMode(  CTSPIN, OUTPUT);
-
   // step pin initialization
   for (int StepIdx = 0; StepIdx < 4; StepIdx++) {    // Loop over sequencer Steps
     pinMode(     StepPins[StepIdx], OUTPUT);                // config step pin
@@ -278,7 +340,7 @@ void setup() {
   }  
   digitalWrite(  LEDPIN, HIGH);
   digitalWrite(  CTSPIN, LOW);
-}
+} // setup()
 
 // this loop is entered seveal seconds after setup()
 // Tx timout is managed at the loop() level, outside of state machine
@@ -314,31 +376,6 @@ void loop() {
   StateMachine(Key, TimeLoop);
 
   delay(LOOPTIMEINTERVAL);
-}
-
-// Default configuration, executed from Setup(), if necessary
-void initConfigStruct(void) {
-  Config.Step[0].Polarity = OPEN; // open on Rx 
-  Config.Step[0].Assert   = 250;  // msec relay assert time
-  Config.Step[0].Release  = 200;  // msec relay release time
-  Config.Step[1].Polarity = OPEN;
-  Config.Step[1].Assert   = 251;
-  Config.Step[1].Release  = 201;
-  Config.Step[2].Polarity = OPEN;
-  Config.Step[2].Assert   = 252;
-  Config.Step[2].Release  = 202;
-  Config.Step[3].Polarity = OPEN;
-  Config.Step[3].Assert   = 253;
-  Config.Step[3].Release  = 203;
-  Config.Key.Enable       = true; // Hardware key line
-  Config.Key.Polarity     = LOW;  // Ground to key
-  Config.RTS.Enable       = true; // Serial control signal
-  Config.RTS.Polarity     = LOW;  // voltage on MCU pin, (normally high)
-  Config.CTS.Enable       = true; // Low mean tx
-  Config.CTS.Polarity     = LOW;  // voltage on MCU pin, (normally high)
-  Config.Timer.Enable     = true;
-  Config.Timer.Time       = 10;   // sec 
-  Config.Check            = 0;    // CRC-16
 }
 
 // States are number 0 to 9 by an enum function
