@@ -177,6 +177,24 @@ struct sConfig {
 sConfig Config;
 sConfig ConfigTmp;
 
+// Global sequencer state machine variables
+static int           nextState = Rx;
+static int           State     = Rx;
+static int           prevState;
+uint8_t              StateCnt  = sizeof(States);
+int                  TimeLoop;
+unsigned long        TimeNow;
+static unsigned long TimePrevious = millis(); // initialize
+
+#define LOOPTIMEINTERVAL 10 // msec
+
+// function prototypes
+void StateMachine(bool Key, int TimeLoop);
+void printConfig(void);
+void printEEPROM(void);
+void initConfigStruct(void);
+void UserConfig(void);
+
 // Default configuration, executed from Setup(), if necessary
 // User defines contact closure state when in Rx mode not keyed
 // User defines the step timing per the data sheet for the relay
@@ -216,22 +234,188 @@ sConfig ReadConfig(int address){
   return EEPROM.get(address, Config);
 }
 
-// Global state machine variables
-static int           StateNext = Rx;
-static int           State     = Rx;
-static int           StatePrevious;
-uint8_t              StateCnt  = sizeof(States);
-int                  TimeLoop;
-unsigned long        TimeNow;
-static unsigned long TimePrevious = millis(); // initialize
+// check for new state, if new, prompt
+void newState(uint8_t prevState, uint8_t State, String Prompt) {
+  if (prevState != State) {
+    Serial.print("                                                         \r");
+    Serial.print(Prompt);
+  }
+}
 
-// function prototypes
-void StateMachine(bool Key, int TimeLoop);
-void printConfig(void);
-void printEEPROM(void);
-void initConfigStruct(void);
+// user configureation setting state machine
+// called each pass througn loop()
+// command tree
+//   {s, k, r, c, t, ?}         // Step, Key, RTS, CTS, Timer, Config  
+//     s {1, 2, 3, 4} {a, r, p} // Step Number Assert, Release, Polarity
+//       s a (msec)             // Step Assert 0 to 255 msec
+//       s r (msec)             // Step Release 0 to 255 msec
+//     k {e, p}                 // Key
+//       k e {y, n}             // Key Enable yes/no
+//       k p {o, c}             // Key Polarity, High/Low
+//     r {e, p}                 // RTS
+//       r e {y, n}             // RTS Enable yes/no
+//       r p {h, l}             // RTS Polarity High/Low
+//     c {e, p}                 // CTS 
+//       c e {y, n}             // CTS Enable yes/no
+//       c p {h, l}             // CTS Polarity High/Low
+//     t {time}                 // seconds, 0 means no timeout
+void UserConfig(void) {
+  enum UserConfigState {
+    first, 
+    top, 
+      step,
+        stepA,
+        stepR,
+        stepO,
+        stepC,  
+      key, 
+        keyE, 
+        keyP,
+      rts, 
+        rtsE,
+        rtsP,
+      cts, 
+        ctsE,
+        ctsP,
+      timeout,
+      dump, 
+      err
+  };
+  static UserConfigState UCS = first;
+  static UserConfigState pUCS;
+  static UserConfigState nUCS;
+  char inChar;
+  String inStr;
+  uint8_t StepIdx;
 
-#define LOOPTIMEINTERVAL 10 // msec
+  pUCS = UCS;
+  UCS  = nUCS;
+  switch (UCS) {
+    case first: {
+      Serial.println("UserConfig");
+      while(Serial.available()) Serial.read(); // clear out input buffer
+      nUCS = top;
+      break;
+    }
+    case top: {
+      newState(pUCS, UCS, "{Step, Key, RTS, CTS, Timeout, Dump: ");
+      if (Serial.available() < 1) break; // stay in this state until character
+      inChar = (char) Serial.read();
+      Serial.print(inChar);
+      switch (inChar) {
+        case 's':
+          nUCS = step;
+          break;
+        case 'k':
+          nUCS = key;
+          break;
+        case 'r':
+          nUCS = rts;
+          break;
+        case 'c':
+          nUCS = cts;
+          break;
+        case 't':
+          nUCS = timeout;
+          break;
+        case 'd':
+          nUCS = dump;
+          break;
+        default:
+          nUCS = err;
+      }  // if Serial.available()
+    }
+    case step: {
+      newState(pUCS, UCS, "Step {1, 2, 3, 4}: ");
+      if (Serial.available() > 0) {
+        inChar = (char) Serial.read();
+        Serial.print(inChar);
+        //StepIdx = atoi(inChar);
+        switch (inChar) {
+          case '1':
+          case '2':
+          case '3':
+          case '4':
+            Serial.print("                                                                \r");
+            Serial.print("Step ");
+            Serial.print(" {Assert msec, Release msec, Open, Closed: ");
+           break;
+          case 'a':  // Assert time
+            nUCS = stepA;
+            break;
+          case 'r':  // Release time
+            nUCS = stepR;
+            break;
+          case 'o':  // Open
+            nUCS = stepO;
+            break;
+          case 'c':  // Closed
+            nUCS = stepC;
+            break;
+            default:   // error
+            break;
+        } // switch on step char
+      } // switch on step character
+    }
+    case stepA:  { // Step Assert, read time
+      newState(pUCS, UCS, "Step Assert time (msec): ");
+      String numStr = Serial.readString();
+      Config.Timer.Time = numStr.toInt();
+      nUCS = top;
+    }
+    case stepR: { // Step Release, read time
+      newState(pUCS, UCS, "Step x Release (time)}: ");
+    }
+    case stepO: {
+      newState(pUCS, UCS, "Step x Open: ");
+      Config.Step[0].Polarity = 1;
+      nUCS = top;
+    }
+    case stepC: {
+      newState(pUCS, UCS, "Step x Closed: ");
+      Config.Step[0].Polarity = 0;
+      nUCS = top;
+    }
+    case key: {
+      newState(pUCS, UCS, "Key {Enable, Polarity}: ");
+    }
+    case keyE: {
+      newState(pUCS, UCS, "Key Enable {1, 0};");
+    }
+    case keyP: {
+      newState(pUCS, UCS, "Key Enable {1, 0};");
+    }
+    case rts: {
+      newState(pUCS, UCS, "RTS {Enable, Polarity}: ");
+    }
+    case rtsE: {
+      newState(pUCS, UCS, "RTS Enable {y, n};");
+    }
+    case rtsP: {
+      newState(pUCS, UCS, "RTS Polarity {1, 0}: ");
+    }
+    case cts: {
+      newState(pUCS, UCS, "CTS {Enable, Polarity: ");
+    }
+    case ctsE: {
+      newState(pUCS, UCS, "CTS Enable {y, n}: ");
+    }
+    case ctsP: {
+      newState(pUCS, UCS, "CTS Polarity {1, 0}: ");
+    }
+    case timeout: {
+      newState(pUCS, UCS, "Timeout {seconds}: ");
+    }
+    case dump: {
+      newState(pUCS, UCS, "Dump of Configuration\n");
+      printConfig();
+    }
+    case err: {
+      newState(pUCS, UCS, "Step {Assert time, Release time, Open, Closed}: ");
+      nUCS = top;
+    }
+  } // switch (UCS)
+} // userConfig()
 
 // Commom state timer and state transition function
 // Called from each state of state machine every time through loop()
@@ -245,12 +429,12 @@ void initConfigStruct(void);
 //   initialize the timer based on state
 //   run the timer on the current state
 // when timer completes, return the new state
-int StateTimer(int StateNew) {  // states are 0, 1, 2, 3
+int StateTimer (int StateNew) {  // states are 0, 1, 2, 3
   static int StepTimer;
   uint8_t StepIdx = StepIndex[State];                // convert from state number to Step structure index
-  if (StatePrevious != State) {                      // State change event
+  if (prevState != State) {                      // State change event
     StepTimer = Config.Step[StepIdx].Release;        // initialize the timer
-    StateEntryMsg(StatePrevious, State, StepTimer);  // debug message
+    newStateMsg(prevState, State, StepTimer);  // debug message
     if ((State >= 1) & (State <=4)) {                // States for transition from Rx to Tx 
       digitalWrite(StepPins[StepIdx], (uint8_t) !Config.Step[StepIdx].Polarity);
     }
@@ -272,13 +456,13 @@ int StateTimer(int StateNew) {  // states are 0, 1, 2, 3
 } // StateStepTimer()
 
 // common message function for all states
-void StateEntryMsg(int StatePrevious, int State, int StepTimer) {
+void newStateMsg(int prevState, int State, int StepTimer) {
   uint8_t StepIdx = StepIndex[State];
   if (DEBUGLEVEL > 0) {
     Serial.print("Enter State ");
     Serial.print(StateNames[State]);
     Serial.print(" from ");
-    Serial.print(StateNames[StatePrevious]);
+    Serial.print(StateNames[prevState]);
     if (StepTimer == 0) {  // skip timer if not specified
       Serial.println();
     } else {
@@ -374,6 +558,7 @@ void loop() {
   Key = (KeyInput || RTSInput) & !(Config.Timer.Enable & KeyTimeOut);  // either key in or RTs and not timeout
 
   StateMachine(Key, TimeLoop);
+  UserConfig();
 
   delay(LOOPTIMEINTERVAL);
 }
@@ -385,17 +570,17 @@ void loop() {
 // State 9:6, transition from Tx to Rx
 void StateMachine(bool Key, int TimeLoop) {
   // State Machine
-  StatePrevious = State;
-  State = StateNext; 
+  prevState = State;
+  State = nextState; 
   switch (State) {
     case Rx:
-      if (StatePrevious != State) {  // first time looping through Rx state
-        StateEntryMsg(StatePrevious, State, 0); // state debug with no timer
+      if (prevState != State) {  // first time looping through Rx state
+        newStateMsg(prevState, State, 0); // state debug with no timer
       }
       // watch for Key asserted, and transition to first Tx state
       if (Key) { // Keyed
         Serial.println("State Rx, key asserted");  
-        StateNext =  S1T;
+        nextState =  S1T;
       } // keyed
       break;
 
@@ -403,48 +588,48 @@ void StateMachine(bool Key, int TimeLoop) {
     case S1T:
       // if unkeyed, transition to corresponding Rx transition state
       if (!Key) {
-        StateNext = S1R;
+        nextState = S1R;
         break;
       }
-      StateNext = StateTimer(S2T); // next state either current or parameter
+      nextState = StateTimer(S2T); // next state either current or parameter
       break;
 
     // manage step 2 relay during Rx to Tx sequence
     case S2T:
       if (!Key) {
-        StateNext = S2R;
+        nextState = S2R;
         break;
       }
-      StateNext = StateTimer(S3T);
+      nextState = StateTimer(S3T);
       break;
 
     // manage step 3 relay during Rx to Tx sequence
     case S3T:
       if (!Key) {
-        StateNext =  S3R;
+        nextState =  S3R;
         break;
       }
-      StateNext = StateTimer(S4T);
+      nextState = StateTimer(S4T);
       break;
 
     // manage step 4 relay during Rx to Tx sequence
     case S4T:
       if (!Key) {
-        StateNext =  S4R;
+        nextState =  S4R;
         break;
       }
-      StateNext =  StateTimer(Tx);
+      nextState =  StateTimer(Tx);
       break;
 
     case Tx:
-      if (StatePrevious != State) {
-        StateEntryMsg(StatePrevious, State, 0);
+      if (prevState != State) {
+        newStateMsg(prevState, State, 0);
         // TODO, look at Config.CTS.Enable
         digitalWrite(CTSPIN, HIGH);
       }
 
       if (!Key) {
-        StateNext =  S4R;
+        nextState =  S4R;
         digitalWrite(CTSPIN, LOW);
       }
       break;
@@ -452,37 +637,37 @@ void StateMachine(bool Key, int TimeLoop) {
     // manage step 4 relay during Tx to Rx sequence
     case S4R: // step 4 release timing
       if (Key) {
-        StateNext =  S4T;
+        nextState =  S4T;
         break;
       }
-      StateNext = StateTimer(S3R);
+      nextState = StateTimer(S3R);
       break;
 
     // manage step 3 relay during Tx to Rx sequence
     case S3R:
       if (Key) {
-        StateNext =  S3T;
+        nextState =  S3T;
         break;
       }
-      StateNext = StateTimer(S2R);
+      nextState = StateTimer(S2R);
       break;
 
     // manage step 2 relay during Tx to Rx sequence
     case S2R:
       if (Key) {
-        StateNext =  S2T;
+        nextState =  S2T;
         break;
       }
-      StateNext = StateTimer(S1R);
+      nextState = StateTimer(S1R);
       break;
 
     // manage step 1 relay during Tx to Rx sequence
     case S1R:
       if (Key) {
-        StateNext =  S1T;
+        nextState =  S1T;
         break;
       }
-      StateNext = StateTimer(Rx);
+      nextState = StateTimer(Rx);
       break;
 
     default:
