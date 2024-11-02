@@ -56,29 +56,3 @@ Design as described in the sketch comments
 //   Key is AND'd with TxTimout
 //   RX state will reset TxTimeout if key signal and RTS both released
 
-// State Machine ASCII art, legend () for state name, [] for event name 
-//
-//                 |--->(    Rx      )--->|
-//                 |    (test key, RST)    |
-//                 |    (clr TxTimeout)    v
-//              [unkey]                 [key]              
-//                 ^                      | 
-//        |---->\  | /----->[key]----->\  v  /<----|           
-//    [delay]    (S1R)                  (S1T)    [delay]
-//        |<----/  ^ \<----[unkey]<----/  |  \>----|         
-//                 |                      |
-//        |---->\  | /----->[key]----->\  v  /<----|           
-//    [delay]    (S1R)                  (S1T)    [delay]
-//        |<----/  ^ \<----[unkey]<----/  |  \>----|         
-//                 |                      |
-//        |---->\  | /----->[key]----->\  v  /<----|           
-//    [delay]    (S1R)                  (S1T)    [delay]
-//        |<----/  ^ \<----[unkey]<----/  |  \>----|         
-//                |                       |
-//        |---->\ |  /----->[key]----->\  v  /<----|           
-//    [delay]    (S1R)                  (S1T)    [delay]
-//        |<----/ ^  \<----[unkey]<----/  |  \>----|         
-//                |                       v
-//             [unkey]                  [key]                     
-//                  \                   /
-//                   <--(    Tx     )<--        
