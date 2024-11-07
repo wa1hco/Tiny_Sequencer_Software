@@ -82,6 +82,7 @@ void PrintConfig(sConfig_t Config) {
     Serial.print(Config.Step[ii].Release);
     Serial.println();
   }
+
   Serial.print(" Key   ");
   if (Config.Key.Enable == true){
     Serial.print("Enabled");
@@ -95,6 +96,7 @@ void PrintConfig(sConfig_t Config) {
     Serial.print("Low");
     Serial.println();
   }
+
   Serial.print(" RTS   ");
   if (Config.RTS.Enable == true){
     Serial.print("Enabled");
@@ -108,6 +110,21 @@ void PrintConfig(sConfig_t Config) {
     Serial.print("Low");
     Serial.println();
   }
+
+  Serial.print(" CTS   ");
+  if (Config.CTS.Enable == true){
+    Serial.print("Enabled");
+  } else {
+    Serial.print("Disabled");
+  }
+  Serial.print(", Asserted = ");
+  if (Config.CTS.Polarity == HIGH) {
+    Serial.print("High");
+  } else {
+    Serial.print("Low");
+    Serial.println();
+  }
+
   Serial.print(" Timer ");
   if (Config.Timer.Enable == true) {
     Serial.print("Enabled");
@@ -117,4 +134,4 @@ void PrintConfig(sConfig_t Config) {
   Serial.print(", Time ");
   Serial.print(Config.Timer.Time);
   Serial.println(" sec");
-}
+} // PrintConfig()

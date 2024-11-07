@@ -31,13 +31,13 @@
 
 // Private to StateMachine functions
 // State Machine definitions
-enum         State_t  { Rx,     S1T,     S2T,     S3T,     S4T,   Tx,     S4R,     S3R,     S2R,     S1R }; // numbered 0 to 9
-String  StateName[] = {"Rx",   "S1T",   "S2T",   "S3T",   "S4T", "Tx",   "S4R",   "S3R",   "S2R",   "S1R"}; // for debug messages
-uint8_t StepIndex[] = { 99,       0,       1,       2,       3,   99,       3,       2,       1,       0 }; // map states to step index
+enum         State_t  {  Rx,     S1T,     S2T,     S3T,     S4T,    Tx,     S4R,     S3R,     S2R,     S1R }; // numbered 0 to 9
+String  StateName[] = {" Rx",   "S1T",   "S2T",   "S3T",   "S4T", " Tx",   "S4R",   "S3R",   "S2R",   "S1R"}; // for debug messages
+uint8_t   StepPin[] = {    0, S1T_PIN, S2T_PIN, S3T_PIN, S4T_PIN,     0, S4R_PIN, S3R_PIN, S2R_PIN, S1R_PIN}; // map state to hardware pin
 
 // private functions
-void newStateMsg(sConfig_t Config, State_t prevState, State_t State, int StepTime, pin_size_t StepPin);
-State_t StateTimer (sConfig_t Config, State_t prevState, State_t State, State_t nextState, int TimeLoop, int StepPin);
+void newStateMsg(sConfig_t Config, State_t prevState, State_t State, int StepTime);
+State_t StateTimer (sConfig_t Config, State_t prevState, State_t State, State_t nextState, int TimeLoop);
 
 // Commom state timer and state transition function
 // Called from each state of state machine every time through loop()
@@ -57,47 +57,44 @@ State_t StateTimer (sConfig_t Config, State_t prevState, State_t State, State_t 
 //  nextState: for when timer timesout
 //  TimeLoop: time between calls to statemachine, used to decrement timer
 //  StepPin: pin controlled by next state
-State_t StateTimer (sConfig_t Config, State_t prevState, State_t State, State_t nextState, int TimeLoop, int StepPin) {
+State_t StateTimer (sConfig_t Config, State_t prevState, State_t State, State_t nextState, int TimeLoop) {
   static int StepTime;
-  if (prevState != State) {                           // State change event
+  // State change on this pass
+  if (prevState != State) { 
     if ((State >= 1) & (State <=4)) {                 // States for transition from Rx to Tx 
     // write pin associated with state, Rx and Tx do not get written
-      digitalWrite(StepPin, (uint8_t) !Config.Step[State - 1].Polarity);
+      digitalWrite(StepPin[State], (uint8_t) !Config.Step[State - 1].Polarity);
       StepTime = Config.Step[State - 1].Release;          // initialize the timer
     }
     if ((State >= 6) & (State <= 9)) {                // States for transition from Tx to Rx
-      digitalWrite(StepPin, (uint8_t) Config.Step[State - 6].Polarity);
+      digitalWrite(StepPin[State], (uint8_t) Config.Step[State - 6].Polarity);
       StepTime = Config.Step[State - 6].Release;          // initialize the timer
     }
-    newStateMsg(Config, prevState, State, StepTime, StepPin);  // debug message
-    return State;
-  } else {                                            // timer running, check for timeout
-    StepTime -= TimeLoop;
-    //Serial.print("State S1T, StepTime ");
-    //Serial.print(StepTime);
-    //Serial.println(" ms");
-    if (StepTime <= 0) {
-      return nextState;
-    } else {
-      return State;
-    } // if timeout
-  } // if/else statechange
+    newStateMsg(Config, prevState, State, StepTime);  // debug message
+  } // if state change 
+
+  StepTime -= TimeLoop;
+
+  if (StepTime <= 0) {  // timer running, check for timeout
+    State = nextState;
+  }
+  return State;
 } // StateTimer()
 
 // common message function for all states
-void newStateMsg(sConfig_t Config, State_t prevState, State_t State, int StepTime, pin_size_t StepPin) {
+void newStateMsg(sConfig_t Config, State_t prevState, State_t State, int StepTime) {
   if (DEBUGLEVEL > 0) {
-    Serial.print("Enter State ");
-    Serial.print(StateName[State]);
-    Serial.print(" from ");
+    Serial.print("State from ");
     Serial.print(StateName[prevState]);
+    Serial.print(" to ");
+    Serial.print(StateName[State]);
     if (StepTime == 0) {  // skip timer if not specified
       Serial.println();
     } else {
       Serial.print(", timer ");
       Serial.print(StepTime);
       Serial.print(" ms, Pin ");
-      Serial.print(StepPin);
+      Serial.print(StepPin[State]);
       Serial.print(", Polarity ");
       if ((State >= 1) & (State <= 4)) {  // Rx state
         Serial.print(!Config.Step[State - 1].Polarity); 
@@ -126,7 +123,7 @@ void StateMachine(sConfig_t Config, bool Key, int TimeLoop) {
   switch (State) {
     case Rx: 
       if (prevState != State) {  // first time looping through Rx state
-        newStateMsg(Config, prevState, State, 0, RX_PIN); // State debug with no timer
+        newStateMsg(Config, prevState, State, 0); // State debug with no timer
       }
       // watch for Key asserted, and transition to first Tx state
       if (Key) { // Keyed
@@ -137,7 +134,7 @@ void StateMachine(sConfig_t Config, bool Key, int TimeLoop) {
     // manage step 1 relay during Rx to Tx sequence
     case S1T:
       if (Key) {
-        nextState = StateTimer(Config, prevState, State, S2T, TimeLoop, S2T_PIN); // next state either current or parameter
+        nextState = StateTimer(Config, prevState, State, S2T, TimeLoop); // next state either current or parameter
       } else { // if not keyed, transition to corresponding Rx transition state
         nextState = S1R;
       }
@@ -146,7 +143,7 @@ void StateMachine(sConfig_t Config, bool Key, int TimeLoop) {
     // manage step 2 relay during Rx to Tx sequence
     case S2T:
       if (Key) {
-        nextState = StateTimer(Config, prevState, State, S3T, TimeLoop, S3T_PIN);
+        nextState = StateTimer(Config, prevState, State, S3T, TimeLoop);
       } else {
         nextState = S2R;
       }
@@ -155,7 +152,7 @@ void StateMachine(sConfig_t Config, bool Key, int TimeLoop) {
     // manage step 3 relay during Rx to Tx sequence
     case S3T: 
       if (Key) {
-        nextState = StateTimer(Config, prevState, State, S4T, TimeLoop, S4T_PIN);
+        nextState = StateTimer(Config, prevState, State, S4T, TimeLoop);
       } else {
         nextState =  S3R;
       }
@@ -164,7 +161,7 @@ void StateMachine(sConfig_t Config, bool Key, int TimeLoop) {
     // manage step 4 relay during Rx to Tx sequence
     case S4T: 
       if (Key) {
-        nextState =  StateTimer(Config, prevState, State, Tx, TimeLoop, TX_PIN);
+        nextState =  StateTimer(Config, prevState, State, Tx, TimeLoop);
       } else {
         nextState =  S4R;
       }
@@ -172,7 +169,7 @@ void StateMachine(sConfig_t Config, bool Key, int TimeLoop) {
 
     case Tx: 
       if (prevState != State) {
-        newStateMsg(Config, prevState, State, 0, TX_PIN);
+        newStateMsg(Config, prevState, State, 0);
         // TODO, if Config.CTS.Enable...
         digitalWrite(CTSPIN, HIGH);
       }
@@ -186,7 +183,7 @@ void StateMachine(sConfig_t Config, bool Key, int TimeLoop) {
     // manage step 4 relay during Tx to Rx sequence
     case S4R:  // step 4 release timing
       if (!Key) {
-        nextState = StateTimer(Config, prevState, State, S3R, TimeLoop, S3R_PIN);
+        nextState = StateTimer(Config, prevState, State, S3R, TimeLoop);
       } else {
         nextState =  S4T;
       }
@@ -195,7 +192,7 @@ void StateMachine(sConfig_t Config, bool Key, int TimeLoop) {
     // manage step 3 relay during Tx to Rx sequence
     case S3R: 
       if (!Key) {
-        nextState = StateTimer(Config, prevState, State, S2R, TimeLoop, S2R_PIN);
+        nextState = StateTimer(Config, prevState, State, S2R, TimeLoop);
       } else {
         nextState =  S3T;
       }
@@ -204,7 +201,7 @@ void StateMachine(sConfig_t Config, bool Key, int TimeLoop) {
     // manage step 2 relay during Tx to Rx sequence
     case S2R: 
       if (!Key) {
-        nextState = StateTimer(Config, prevState, State, S1R, TimeLoop, S1R_PIN);
+        nextState = StateTimer(Config, prevState, State, S1R, TimeLoop);
       } else {
         nextState =  S2T;
       }
@@ -212,8 +209,8 @@ void StateMachine(sConfig_t Config, bool Key, int TimeLoop) {
 
     // manage step 1 relay during Tx to Rx sequence
     case S1R: 
-      if (Key) {
-        nextState = StateTimer(Config, prevState, State, Rx, TimeLoop, RX_PIN);
+      if (!Key) {
+        nextState = StateTimer(Config, prevState, State, Rx, TimeLoop);
       } else {
         nextState =  S1T;
       }

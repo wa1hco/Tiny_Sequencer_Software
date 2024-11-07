@@ -47,15 +47,86 @@
 //   Assert a key gate, triggers transition to Rx
 //   Rx waits for Key and RTS signals to release, clears key gate
 
-// TODO
-//   Timeout on Tx held too long
-//   CTS asserted when in Tx state
-
 #include "HardwareConfig.h"
 #include "SoftwareConfig.h"
+#include "Config.h"
 #include "SequencerStateMachine.h"
 #include "UserInterface.h"
 #include "Global.h"
+
+sConfig_t Config;
+
+//  Setup ATtiny_TimerInterrupt library
+#if !( defined(MEGATINYCORE) )
+  #error The interrupt is designed only for MEGATINYCORE megaAVR board! Please check your Tools->Board setting
+#endif
+// These define's must be placed at the beginning before #include "megaAVR_TimerInterrupt.h"
+// _TIMERINTERRUPT_LOGLEVEL_ from 0 to 4
+// Don't define _TIMERINTERRUPT_LOGLEVEL_ > 0. Only for special ISR debugging only. Can hang the system.
+#define TIMER_INTERRUPT_DEBUG         0
+#define _TIMERINTERRUPT_LOGLEVEL_     0
+
+// Select USING_FULL_CLOCK      == true for  20/16MHz to Timer TCBx => shorter timer, but better accuracy
+// Select USING_HALF_CLOCK      == true for  10/ 8MHz to Timer TCBx => shorter timer, but better accuracy
+// Select USING_250KHZ          == true for 250KHz to Timer TCBx => longer timer,  but worse  accuracy
+// Not select for default 250KHz to Timer TCBx => longer timer,  but worse accuracy
+#define USING_FULL_CLOCK      true
+#define USING_HALF_CLOCK      false
+#define USING_250KHZ          false         // Not supported now
+
+// Try to use RTC, TCA0 or TCD0 for millis()
+#define USE_TIMER_0           true          // Check if used by millis(), Servo or tone()
+#define USE_TIMER_1           false         // Check if used by millis(), Servo or tone()
+
+#if USE_TIMER_0
+  #define CurrentTimer   ITimer0
+#elif USE_TIMER_1
+  #define CurrentTimer   ITimer1
+#else
+  #error You must select one Timer  
+#endif
+
+// To be included only in main(), .ino with setup() to avoid `Multiple Definitions` Linker Error
+#include "ATtiny_TimerInterrupt.h"
+
+#define TIMER1_INTERVAL_MS    10
+#define TIMER1_FREQUENCY      (float) (1000.0f / TIMER1_INTERVAL_MS)
+
+#define ADJUST_FACTOR         ( (float) 0.99850 )
+
+// Called from an timer interrupt
+void SequencerISR() {
+  static long          TxTimer_msec; 
+  int                  TimeIncrement;
+  unsigned long        TimeNow;
+  static unsigned long TimePrevious = millis(); // initialize
+  bool Key;        // used by state machine, combined from hardware and timeout
+  bool KeyTimeOut; // used by Tx timout management in loop()
+
+  TimeNow = millis();
+  TimeIncrement = (unsigned int)(TimeNow - TimePrevious);
+  TimePrevious = TimeNow;
+
+  // two methods of keying, logic converts input to positive logic 
+  bool KeyInput = Config.Key.Enable & !( (bool) digitalRead(KEYPIN) ^ (bool) Config.Key.Polarity); // hardware Key interface, high = asserted
+  bool RTSInput = Config.RTS.Enable & !( (bool) digitalRead(RTSPIN) ^ (bool) Config.RTS.Polarity); // USB serial key interface, high = asserted
+
+  if (!KeyInput & !RTSInput) {  // if unkeyed, reset the tx timeout timer
+    TxTimer_msec = (long) Config.Timer.Time * 1000; //sec to msec
+    KeyTimeOut = false;
+  } else {
+    TxTimer_msec -= (long) TimeIncrement;
+  }
+  
+  // if Tx timer timeout, set KeyTimeOut flag
+  if (TxTimer_msec <= 0) {
+    TxTimer_msec = 0;               // keep timer from underflowing
+    KeyTimeOut = true;
+  }
+  Key = (KeyInput || RTSInput) & !(Config.Timer.Enable & KeyTimeOut);  // key in OR RTS AND NOT timeout
+
+  StateMachine(Config, Key, TimeIncrement);
+}
 
 void setup() {  
   Serial.begin(19200);
@@ -65,7 +136,7 @@ void setup() {
   // Check Configure and init if necessary
   // Read EEPROM
   // TODO add function to wear level the eeprom
-  sConfig_t Config = ReadConfig( 0 );  // address 0
+  Config = ReadConfig( 0 );  // address 0
   if (isConfigValid(Config)) {
     Serial.println("setup: Config ok, CRC match");
   } else {
@@ -86,56 +157,32 @@ void setup() {
   digitalWrite(S3T_PIN, (uint8_t) Config.Step[2].Polarity); // config as receive mode 
   digitalWrite(S4T_PIN, (uint8_t) Config.Step[3].Polarity); // config as receive mode 
 
-
+  CurrentTimer.init();
+  if (CurrentTimer.attachInterruptInterval(TIMER1_INTERVAL_MS * ADJUST_FACTOR, SequencerISR))
+  {
+    Serial.print(F("Starting ITimer OK, millis() = ")); Serial.println(millis());
+  }
+  else {
+    Serial.println(F("Can't set ITimer. Select another freq. or timer"));
+  }
+  
 } // setup()
 
 // this loop is entered seveal seconds after setup()
 // Tx timout is managed at the loop() level, outside of state machine
 void loop() {
-  bool Key;        // used by state machine, combined from hardware and timeout
-  bool KeyTimeOut; // used by Tx timout management in loop()
-  static long TxTimer_msec; 
   static bool FirstPass = true;
-  static sConfig_t Config;
-
-  int                  TimeLoop;
-  unsigned long        TimeNow;
-  static unsigned long TimePrevious = millis(); // initialize
 
   // First time through the loop read the configuration data structure from EEPROM
+  // setup() should have ensured a valid configuration or reinitialized
   if (FirstPass) {   
     Config = ReadConfig(0);
     FirstPass = false;
   }
  
-  // time calculation for this pass through the loop
-  TimeNow = millis();
-  // Calculate time increment for this pass through loop()
-  TimeLoop = (unsigned int)(TimeNow - TimePrevious);
-  TimePrevious = TimeNow;  // always, either first or later pass
-
-  // two methods of keying, logic converts input to positive logic 
-  bool KeyInput = Config.Key.Enable & !( (bool) digitalRead(KEYPIN) ^ (bool) Config.Key.Polarity); // hardware Key interface, high = asserted
-  bool RTSInput = Config.RTS.Enable & !( (bool) digitalRead(RTSPIN) ^ (bool) Config.RTS.Polarity); // USB serial key interface, high = asserted
-
-  if (!KeyInput & !RTSInput) {  // if unkeyed, reset the tx timeout timer
-    TxTimer_msec = (long) Config.Timer.Time * 1000; //sec to msec
-    KeyTimeOut = false;
-  } else {
-    TxTimer_msec -= (long) TimeLoop;
-  }
-  
-  // if Tx timer timeout, set KeyTimeOut flag
-  if (TxTimer_msec <= 0) {
-    TxTimer_msec = 0;               // keep timer from underflowing
-    KeyTimeOut = true;
-  }
-  Key = (KeyInput || RTSInput) & !(Config.Timer.Enable & KeyTimeOut);  // key in OR RTS AND NOT timeout
-
-  StateMachine(Config, Key, TimeLoop);
   Config = UserConfig(Config);
 
-  #define LOOPTIMEINTERVAL 10 // msec
+  #define LOOPTIMEINTERVAL 30 // msec
   delay(LOOPTIMEINTERVAL);
 }
 
