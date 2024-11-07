@@ -1,5 +1,6 @@
 This sequencer software is an arduino sketch for use with the ATTiny[816 1616] microcontroller.
-The software is copyright 2024 by jeff millar, wa1hco.  The software is licensed under the GPL V3
+The software is copyright 2024 by jeff millar, wa1hco.  The software is licensed under the
+Creative Commons Share and Attribute license.
 
 The software supports one Key input and 4 contact closure outputs.
 The input is configurable for either High or Low for key asserted.
