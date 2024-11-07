@@ -3,34 +3,34 @@
 
 #include <Arduino.h> // get the pin names
 
-//  ATTinyX16, SOIC-20, Hardware Pin Definitions
+//  ATTinyX16, QFN-20, Hardware Pin Definitions, lower case means secondary pin location
 //----------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 // Pin      |1  |2  |3  |4  |5  |6  |7  |8  |9  |10 |11 |12 |13 |14 |15 |16 |17 |18 |19 |20 |
 //----------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-// Port     |   |PA4|PA5|PA6|PA7|PB5|PB4|PB3|PB2|PB1|PB0|PC0|PC1|PC2|PC3|PA0|PA1|PA2|PA3|   |
-// Power    |PWR|   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |GND|
-// PWM      |   |   |   |   |   |   |   |8  |9  |   |   |12 |13 |14 |15 |   |   |   |   |   |
-// UPDI     |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |PDI|   |   |   |   |
-// Analog   |A0~|A1~|A2 |A3 |A4 |A5 |   |   |   |A8~|A9~|A2 |A3 |   |   |A17|A14|A15|A16|   |
-// I2C      |   |   |   |   |   |   |   |   |   |SDA|SCL|   |   |   |   |   |   |   |   |   |
-// Serial1  |   |   |   |   |   |   |   |RXD|TXD|   |   |   |   |   |   |   |   |   |   |   |
-// DAC      |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |
-// CLOCK    |   |   |   |   |   |   |   |OSC|OSC|   |   |   |   |   |   |   |   |   |EXT|   |
+// Port     |PA2|PA3|GND|VCC|PA4|PA5|PA6|PA7|PB5|PB4|PB3|PB2|PB1|PB0|PC0|PC1|PC2|PC3|PA0|PA1|
+// Power    |   |   |GND|VCC|   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |
+// TCA0     |   |   |   |   |WO4|WO5|   |   |wo2|wo1|wo0|WO2|WO1|WO0|   |   |   |wo3|WO3|   |
+// UPDI     |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |PDI|   |
+// ADC0     |A2 |A3 |A2 |   |A4 |A5 |A6 |A7 |A8 |A9 |   |   |A10|A11|   |A17|A14|A15|A0 |A1 |
+// ADC1     |   |   |   |   |A0 |A1 |A2 |A3 |   |   |   |   |   |   |A6 |A7 |A8 |A9 |   |   |
+// TWI0     |scl|   |   |   |   |   |   |   |   |   |   |   |SDA|SCL|   |   |   |   |   |sda|
+// USART0   |rxd|xck|   |   |   |   |   |   |   |   |RXD|TXD|XCK|DIR|   |   |   |   |   |txd|
+// CLOCK    |   |EXT|   |   |   |   |   |   |   |   |OSC|OSC|   |   |   |   |   |   |   |   |
 //----------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 // Sequencer board use of pins
-//----------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+//----------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 // Pins     |1  |2  |3  |4  |5  |6  |7  |8  |9  |10 |11 |12 |13 |14 |15 |16 |17 |18 |19 |20 |  
-// Port     |   |PA4|PA5|PA6|PA7|PB5|PB4|PB3|PB2|PB1|PB0|PC0|PC1|PC2|PC3|PA0|PA1|PA2|PA3|   |
+// Port     |PA2|PA3|GND|VCC|PA4|PA5|PA6|PA7|PB5|PB4|PB3|PB2|PB1|PB0|PC0|PC1|PC2|PC3|PA0|PA1|
 //----------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|  
-// SeqOut   |   |   |   |   |   |   |   |   |   |   |S3 |   |S2 |S1 |   |   |   |   |S4 |   |
-// Serial   |   |   |   |   |   |   |   |RXD|TXD|   |   |   |   |   |   |   |RTS|CTS|   |   |
-// Key      |   |   |   |   |   |   |   |   |   |   |   |   |   |   |KEY|   |   |   |   |   |
-// LED      |   |   |   |   |   |   |   |   |   |   |   |LED|   |   |   |   |   |   |   |   |
-// UPDI     |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |PDI|   |   |   |   |
-// EXTRA    |   |1  |2  |3  |4  |5  |6  |   |   |   |   |   |   |   |   |   |   |   |   |   |
+// SeqOut   |   |   |   |   |   |   |   |   |   |   |   |   |   |S4 |S3 |S2 |S1 |   |   |   |
+// Serial   |CTS|   |   |   |   |   |   |   |   |   |RXD|TXD|   |   |   |   |   |   |   |RTS|
+// Key      |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |KEY|   |   |
+// LED      |   |LED|   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |
+// UPDI     |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |PDI|   |
+// EXTRA    |   |   |   |   |X1 |X2 |X3 |X4 |X5 |X6 |   |   |   |   |   |   |   |   |   |   |
 //--------- |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-// Unused   |   |   |   |   |   |   |   |   |   |10 |   |   |   |   |   |   |   |   |   |   |
+// Unused   |   |   |   |   |   |   |   |   |   |   |   |   |13 |   |   |   |   |   |   |   |
 //--------- |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 // Hardware Connections for ATTinyX16
@@ -38,7 +38,7 @@
 #define KEYPIN    PIN_PC3   // MCU 15,    JP4 8
 #define RTSPIN    PIN_PA1   // MCU 17,    JP4 6
 #define CTSPIN    PIN_PA2   // MCU 18,    JP4 5
-#define LEDPIN    PIN_PC0   // MCU 12,    JP2 10
+#define LEDPIN    PIN_PA3   // MCU 12,    JP2 10
 #define XTRA1PIN  PIN_PA4   // MCU  2,    JP2 1
 #define XTRA2PIN  PIN_PA5   // MCU  3,    JP2 2
 #define XTRA3PIN  PIN_PA6   // MCU  4,    JP2 3
@@ -60,8 +60,8 @@
 #define RX_PIN  0
 #define S1T_PIN PIN_PC2
 #define S2T_PIN PIN_PC1
-#define S3T_PIN PIN_PB0
-#define S4T_PIN PIN_PA3
+#define S3T_PIN PIN_PC0
+#define S4T_PIN PIN_PB0
 #define S1R_PIN S1T_PIN
 #define S2R_PIN S2T_PIN
 #define S3R_PIN S3T_PIN
