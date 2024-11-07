@@ -109,6 +109,7 @@ sConfig_t UserConfig(sConfig_t Config) {
 
   prevUCS = UCS;
   UCS = nextUCS;  
+  String numStr;
   
   switch (UCS) {
      case first:
@@ -200,7 +201,7 @@ sConfig_t UserConfig(sConfig_t Config) {
       break;
     case stepA:  // Step Assert, read time
       newUserState(prevUCS, UCS, "Step Assert time (msec): ");
-      String numStr = Serial.readString();
+      numStr = Serial.readString();
       Config.Timer.Time = numStr.toInt();
       nextUCS = read;
       break;
@@ -267,7 +268,8 @@ sConfig_t UserConfig(sConfig_t Config) {
       newUserState(prevUCS, UCS, "Step {Assert time, Release time, Open, Closed}: ");
       nextUCS = read;
       break;
-  } // switch (UCS)
+  }
   return Config;
-} // userConfig()
+  }
 
+} // UserConfig
