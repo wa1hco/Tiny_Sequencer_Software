@@ -31,13 +31,13 @@
 
 // Private to StateMachine functions
 // State Machine definitions
-enum         State_t  {  Rx,     S1T,     S2T,     S3T,     S4T,    Tx,     S4R,     S3R,     S2R,     S1R }; // numbered 0 to 9
-String  StateName[] = {" Rx",   "S1T",   "S2T",   "S3T",   "S4T", " Tx",   "S4R",   "S3R",   "S2R",   "S1R"}; // for debug messages
-uint8_t   StepPin[] = {    0, S1T_PIN, S2T_PIN, S3T_PIN, S4T_PIN,     0, S4R_PIN, S3R_PIN, S2R_PIN, S1R_PIN}; // map state to hardware pin
+enum         State_t           {  Rx,     S1T,     S2T,     S3T,     S4T,    Tx,     S4R,     S3R,     S2R,     S1R }; // numbered 0 to 9
+const char*  StateName[][10] = {" Rx",   "S1T",   "S2T",   "S3T",   "S4T", " Tx",   "S4R",   "S3R",   "S2R",   "S1R"}; // for debug messages
+uint8_t   StepPin[] =          {    0, S1T_PIN, S2T_PIN, S3T_PIN, S4T_PIN,     0, S4R_PIN, S3R_PIN, S2R_PIN, S1R_PIN}; // map state to hardware pin
 
 // private functions
-void newStateMsg(sConfig_t Config, State_t prevState, State_t State, int StepTime);
-State_t StateTimer (sConfig_t Config, State_t prevState, State_t State, State_t nextState, int TimeLoop);
+void   newStateMsg(sConfig_t Config, State_t prevState, State_t State, int StepTime);
+State_t StateTimer(sConfig_t Config, State_t prevState, State_t State, State_t nextState, int TimeLoop);
 
 // Commom state timer and state transition function
 // Called from each state of state machine every time through loop()
@@ -61,16 +61,15 @@ State_t StateTimer (sConfig_t Config, State_t prevState, State_t State, State_t 
   static int StepTime;
   // State change on this pass
   if (prevState != State) { 
-    if ((State >= 1) & (State <=4)) {                 // States for transition from Rx to Tx 
-    // write pin associated with state, Rx and Tx do not get written
-      digitalWrite(StepPin[State], (uint8_t) !Config.Step[State - 1].Polarity);
-      StepTime = Config.Step[State - 1].Release;          // initialize the timer
+    if ((State >= S1T) & (State <= S4T)) {                    // States for transition from Rx to Tx 
+      digitalWrite(StepPin[State], (uint8_t) Config.Step[S1T - 1].TxPolarity);
+      StepTime = Config.Step[State - 1].Tx_msec;             // initialize the timer
+    }    
+    if ((State >= S4R) & (State <= S1R)) {                   // States for transition from Tx to Rx
+      digitalWrite(StepPin[State], (uint8_t) !Config.Step[S1R - 6].TxPolarity);
+      StepTime = Config.Step[State - 6].Rx_msec;             // initialize the timer
     }
-    if ((State >= 6) & (State <= 9)) {                // States for transition from Tx to Rx
-      digitalWrite(StepPin[State], (uint8_t) Config.Step[State - 6].Polarity);
-      StepTime = Config.Step[State - 6].Release;          // initialize the timer
-    }
-    newStateMsg(Config, prevState, State, StepTime);  // debug message
+    newStateMsg(Config, prevState, State, StepTime);         // debug message
   } // if state change 
 
   StepTime -= TimeLoop;
@@ -83,28 +82,15 @@ State_t StateTimer (sConfig_t Config, State_t prevState, State_t State, State_t 
 
 // common message function for all states
 void newStateMsg(sConfig_t Config, State_t prevState, State_t State, int StepTime) {
-  if (DEBUGLEVEL > 0) {
-    Serial.print("State from ");
-    Serial.print(StateName[prevState]);
-    Serial.print(" to ");
-    Serial.print(StateName[State]);
-    if (StepTime == 0) {  // skip timer if not specified
-      Serial.println();
-    } else {
-      Serial.print(", timer ");
-      Serial.print(StepTime);
-      Serial.print(" ms, Pin ");
-      Serial.print(StepPin[State]);
-      Serial.print(", Polarity ");
-      if ((State >= 1) & (State <= 4)) {  // Rx state
-        Serial.print(!Config.Step[State - 1].Polarity); 
-      }
-      if ((State >= 6) & (State <= 9)) {  // Tx State
-        Serial.print( Config.Step[State - 6].Polarity);
-      }
-      Serial.println();
-    } // if timer
-  } // if debuglevel
+  if ((State == Rx) | State == Tx) {
+    char Msg[80];
+    snprintf(Msg, 80, "State from %s to %s", StateName[0][prevState], StateName[0][State]);
+    Serial.println(Msg); 
+  } else {
+    char Msg[80];
+    snprintf(Msg, 80, "State from %s to %s, timer %d msec", StateName[0][prevState], StateName[0][State], StepTime);
+    Serial.println(Msg);
+  }
 } // StateEntryMessage
 
 // States are number 0 to 9 by an enum function
@@ -127,7 +113,7 @@ void StateMachine(sConfig_t Config, bool Key, int TimeLoop) {
       }
       // watch for Key asserted, and transition to first Tx state
       if (Key) { // Keyed
-        Serial.println("State Rx, key asserted");  
+        //Serial.println("State Rx, key asserted");  
         nextState =  S1T;
       } // keyed
       break;
@@ -171,12 +157,11 @@ void StateMachine(sConfig_t Config, bool Key, int TimeLoop) {
       if (prevState != State) {
         newStateMsg(Config, prevState, State, 0);
         // TODO, if Config.CTS.Enable...
-        digitalWrite(CTSPIN, HIGH);
+        digitalWrite(CTSPIN, CTS_UP);
       }
       if (!Key) {
         nextState =  S4R;
-        // TODO account for config.CTS.polarity
-        digitalWrite(CTSPIN, LOW);
+        digitalWrite(CTSPIN, CTS_DOWN);
       }
       break;
 

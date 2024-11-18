@@ -6,6 +6,6 @@
 #include "Config.h"
 
 // public functions
-sConfig_t UserConfig(sConfig_t);
+void UserConfig(sConfig_t);
 
 #endif

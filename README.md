@@ -4,16 +4,20 @@ licensed under theCreative Commons Share and Attribute license.  The development
 environment is VS Code...it just ended up too big for the Arduino IDE.
 
 The software supports one Key input and 4 contact closure outputs.
-The input is configurable for either High or Low for key asserted.
+Key input is an optoisolator diode with voltage and current limiting.
+The Key input is asserted when 5 to 15 volts is present on the terminal.
+The Key input has about 2.2K impedance.
+The user can configure the two isolated Key contacts for Volts to Key 
+or Ground to key.
 Each output is contact closure configurable for normally CLOSED or OPEN 
 state when not keyed. But when powered off, the contacts are OPEN.
 
 Other features of the software
 * optional USB serial communication with a computer
 * USB interface for programming or comms based on jumper
-* ability to key using RTS
-* ability to read state of key using CTS
-* user configurable assert and release times for each step
+* ability to key using RTS, RTS UP requests Tx
+* ability to read state of key using CTS, CTS UP indicates ready to modulate
+* user configurable tx delay and rx delay times for each step
 * user configurable transmit timeout
 
 Internal Key variable is the OR of external Key and CTS, ANDed with optional Key timeout
@@ -56,8 +60,7 @@ Here are more details from the software comments
 //   Timeout causes transition to next state in Rx to Tx or Rx to Tx sequence
 
 // Keying
-//   Key inputs are external wire or RTS from USB serial port
-//   Key inputs configurable as asserted HIGH or LOW
+//   Key inputs are external opto diode or RTS from USB serial port
 //   Key inputs are converted High true logic and OR'd together
 //   Key is AND'd with TxTimout
 //   RX state will reset TxTimeout if key signal and RTS both released

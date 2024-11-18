@@ -1,16 +1,16 @@
 
-#ifndef SoftwareConfig_h
-#define SoftwareConfig_h
+#ifndef SOFTWARECONFIG_H
+#define SOFTWARECONFIG_H
 
 #include <Arduino.h>
 #include "Config.h"
 
 // Public functions
-sConfig_t InitConfigStruct(sConfig_t Config);
-sConfig_t ReadConfig(                        int address);
-void      WriteConfig(     sConfig_t Config, int address);
-bool      isConfigValid(   sConfig_t Config);
-void      PrintConfig(     sConfig_t Config);
-
+sConfig_t InitDefaultConfig();
+sConfig_t ReadConfig(    int address);
+void      WriteConfig(   int address, sConfig_t Config);
+bool      UpdateConfig(  sConfig_t Config);
+bool      isConfigValid( sConfig_t Config);
+void      PrintConfig(   sConfig_t Config);
 
 #endif

@@ -54,7 +54,7 @@
 #include "UserInterface.h"
 #include "Global.h"
 
-sConfig_t Config;
+sConfig_t Config; 
 
 //  Setup ATtiny_TimerInterrupt library
 #if !( defined(MEGATINYCORE) )
@@ -100,18 +100,24 @@ void SequencerISR() {
   int                  TimeIncrement;
   unsigned long        TimeNow;
   static unsigned long TimePrevious = millis(); // initialize
-  bool Key;        // used by state machine, combined from hardware and timeout
   bool KeyTimeOut; // used by Tx timout management in loop()
 
   TimeNow = millis();
   TimeIncrement = (unsigned int)(TimeNow - TimePrevious);
   TimePrevious = TimeNow;
 
-  // two methods of keying, logic converts input to positive logic 
-  bool KeyInput = Config.Key.Enable & !( (bool) digitalRead(KEYPIN) ^ (bool) Config.Key.Polarity); // hardware Key interface, high = asserted
-  bool RTSInput = Config.RTS.Enable & !( (bool) digitalRead(RTSPIN) ^ (bool) Config.RTS.Polarity); // USB serial key interface, high = asserted
+  // Convert Key input to positive true logic
+  uint8_t KeyPin = digitalRead(KEYPIN);  // low when opto led on
+  uint8_t KeyPositive = !KeyPin; // MCU Pin state, Opto off, pin pulled up, Opto ON causes low
+  
+  // Convert RTS input to positive true logic
+  bool RTSPin = digitalRead(RTSPIN);
+  bool RTSPositive = !RTSPin;  // key if RTS UP, meaning RTS/ and MCU pin low
+  
+  bool KeyState = KeyPositive; // hardware Key interface, high = asserted
+  bool RTSState = Config.RTS.Enable & RTSPositive; // USB serial key interface, high = asserted
 
-  if (!KeyInput & !RTSInput) {  // if unkeyed, reset the tx timeout timer
+  if (!KeyState & !RTSState) {  // if unkeyed, reset the tx timeout timer
     TxTimer_msec = (long) Config.Timer.Time * 1000; //sec to msec
     KeyTimeOut = false;
   } else {
@@ -123,19 +129,44 @@ void SequencerISR() {
     TxTimer_msec = 0;               // keep timer from underflowing
     KeyTimeOut = true;
   }
-  Key = (KeyInput || RTSInput) & !(Config.Timer.Enable & KeyTimeOut);  // key in OR RTS AND NOT timeout
+  bool TimerEnabled = (Config.Timer.Time > 0);
 
+  // used by state machine, combined from hardware and timeout
+  bool Key = (KeyState || RTSState) & (TimerEnabled) & !KeyTimeOut;  // key in OR RTS AND NOT timeout
   StateMachine(Config, Key, TimeIncrement);
 }
 
 void setup() {  
+  // Define the pins, configure i/o
+  InitPins();
+  // blink the LED and delay to switch from UPDI to comms
+  digitalWrite(LEDPIN, HIGH);
+  delay(2000);
+  digitalWrite(LEDPIN, LOW);
+  delay(2000);
+  digitalWrite(LEDPIN, HIGH);
+  delay(2000);
+  digitalWrite(LEDPIN, LOW);
+  delay(2000);
+  digitalWrite(LEDPIN, HIGH);
+  delay(2000);
+  digitalWrite(LEDPIN, LOW);
+  delay(2000);
+  digitalWrite(LEDPIN, HIGH);
+
   Serial.begin(19200);
   Serial.println();
   Serial.println("Sequencer startup");
 
   // Check Configure and init if necessary
+  // if Config in EEPROM is invalid, overwrite with InitConfigStructure()
+  // if Config is 
   // Read EEPROM
   // TODO add function to wear level the eeprom
+  
+  //Config = InitDefaultConfig(); // write default values to Config structure
+  //PrintConfig(Config);
+
   Config = ReadConfig( 0 );  // address 0
   if (isConfigValid(Config)) {
     Serial.println("setup: Config ok, CRC match");
@@ -143,29 +174,21 @@ void setup() {
     Serial.print("setup: Config invalid, CRC mismatch ");
     Serial.print(" write defaults to config");
     Serial.println();
-
-    Config = InitConfigStruct(Config); // write default values to Config structure
-    WriteConfig(Config, 0);  //save Config structure to EEPROM address 0
+    Config = InitDefaultConfig(); // write default values to Config structure
+    WriteConfig(0, Config);  //save Config structure to EEPROM address 0
   } // if CRC match
 
-  // Define the pins, configure i/o
-  InitPins();
   
   // Define the form (NO/NC) of step relays wired into the board
-  digitalWrite(S1T_PIN, (uint8_t) Config.Step[0].Polarity); // config as receive mode 
-  digitalWrite(S2T_PIN, (uint8_t) Config.Step[1].Polarity); // config as receive mode 
-  digitalWrite(S3T_PIN, (uint8_t) Config.Step[2].Polarity); // config as receive mode 
-  digitalWrite(S4T_PIN, (uint8_t) Config.Step[3].Polarity); // config as receive mode 
+  digitalWrite(S1T_PIN, (uint8_t) !Config.Step[0].TxPolarity); // config as receive mode 
+  digitalWrite(S2T_PIN, (uint8_t) !Config.Step[1].TxPolarity); // config as receive mode 
+  digitalWrite(S3T_PIN, (uint8_t) !Config.Step[2].TxPolarity); // config as receive mode 
+  digitalWrite(S4T_PIN, (uint8_t) !Config.Step[3].TxPolarity); // config as receive mode 
 
   CurrentTimer.init();
-  if (CurrentTimer.attachInterruptInterval(TIMER1_INTERVAL_MS * ADJUST_FACTOR, SequencerISR))
-  {
-    Serial.print(F("Starting ITimer OK, millis() = ")); Serial.println(millis());
-  }
-  else {
+  if (!CurrentTimer.attachInterruptInterval(TIMER1_INTERVAL_MS * ADJUST_FACTOR, SequencerISR)){
     Serial.println(F("Can't set ITimer. Select another freq. or timer"));
   }
-  
 } // setup()
 
 // this loop is entered seveal seconds after setup()
@@ -179,10 +202,11 @@ void loop() {
     Config = ReadConfig(0);
     FirstPass = false;
   }
- 
-  Config = UserConfig(Config);
+  
+  // UserConfig update the EEPROM after user input
+  UserConfig(Config);
 
-  #define LOOPTIMEINTERVAL 30 // msec
+  #define LOOPTIMEINTERVAL 10 // msec
   delay(LOOPTIMEINTERVAL);
 }
 
