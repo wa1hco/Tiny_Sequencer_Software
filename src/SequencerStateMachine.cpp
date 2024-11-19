@@ -27,7 +27,6 @@
 
 #include "SequencerStateMachine.h"
 #include "HardwareConfig.h"         // pick up pin names
-#include "Global.h"
 
 // Private to StateMachine functions
 // State Machine definitions

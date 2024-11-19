@@ -15,21 +15,24 @@
 #include <stdlib.h>
 
 enum UserConfigState {
-  top,
-   cmd,
-    step,      // s {1 2 3 4}
-      stepT,   // tx {0 to 255 msec}
-      stepR,   // rx {0 to 255 msec} 
-      stepC,   // contacts closed on tx
-      stepO,   // contacts open on tx
+  top,          // display top info
+   cmd,         // display command info
+    step,       // s {1 2 3 4}
+      stepT,    // tx {0 to 255 msec}
+      stepR,    // rx {0 to 255 msec} 
+      stepC,    // contacts closed on tx
+      stepO,    // contacts open on tx
     rts, 
-      rtsE,    // RTS enabled, Tx on RTS UP
-      rtsD,    // RTS disabled
-    cts, 
-      ctsE,    // CTS enabled, UP if ready to modulate
-      ctsD,    // CTS disabled
-    timeout,   // Time, seconds 0 means disabled
-    dump,      // dispaly current configuration
+      rtsE,     // RTS enabled, Tx on RTS UP
+      rtsD,     // RTS disabled
+    cts,  
+      ctsE,     // CTS enabled, UP if ready to modulate
+      ctsD,     // CTS disabled
+    timeout,    // Time, seconds 0 means disabled
+    dump,       // PrintConfig()
+    initialize, // InitDefaultConfig()
+    help,       // display user interface instructions
+    err         // if user input not understood
 };
 
 // private variable for UserConfig
@@ -38,7 +41,6 @@ static UserConfigState prevUCS;
 static UserConfigState nextUCS;
 #define LINELEN 40
 char Line[LINELEN + 1];   // Line of user text needs to be available to multiple functions
-
 
 void newUserState(uint8_t prevUCS, uint8_t UCS, const char * Prompt) {
   if (prevUCS != UCS) {
@@ -104,7 +106,9 @@ char * GetNextToken(const char * Prompt) {
 //       e                           //        Enable
 //       d                           //        Disable
 //     t {time}                      // Time   seconds, 0 means no timeout
-//     d                             // Dump   print configuration
+//     d                             // Dump   PrintConfig()
+//     i                             // Init   InitDefaultConfig()
+//     h                             // help   display instructions
 
 // UserConfg will update the EEPROM after each user input
 
@@ -122,7 +126,7 @@ void UserConfig(sConfig_t Config) {
   static int     Step_msec;
   static uint8_t StepForm;
   static int     Len;
-  
+
   if (UCS == top) {
     Serial.println("UserConfig: top");
     PrintConfig(Config);
@@ -166,6 +170,8 @@ void UserConfig(sConfig_t Config) {
     if (FirstChar == 'c') nextUCS = cts;
     if (FirstChar == 't') nextUCS = timeout;
     if (FirstChar == 'd') nextUCS = dump;
+    if (FirstChar == 'i') nextUCS = initialize;
+    if (FirstChar == 'h') nextUCS = help;
     return;  // skip rest of UCS tests
   } // if UCS == cmd
 
@@ -314,7 +320,24 @@ void UserConfig(sConfig_t Config) {
     nextUCS = cmd;
   }
 
+  if (UCS == initialize) {
+    Serial.println("UserInterface: UCS = initialize");
+    sConfig_t Config = InitDefaultConfig();
+    PutConfig(0, Config);
+    nextUCS = cmd;
+  }
+
+  if (UCS == help) {
+    Serial.println("UserInterface: UCS = help");
+    nextUCS = cmd;
+  }
+
+  if (UCS == err) {
+    Serial.println("UserInterface: User input error");
+    nextUCS = cmd;
+  }
+
   // The user may have made changes to the config
-  bool isChanged = UpdateConfig(Config);
+  PutConfig(0, Config);
   return;
 } // UserConfig() 

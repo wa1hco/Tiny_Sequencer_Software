@@ -1,7 +1,7 @@
 
 
 #ifndef SEQUENCERSTATEMACHINE_H
-#define EQUENCERSTATEMACHINE_H
+#define SEQUENCERSTATEMACHINE_H
 
 #include "Config.h"
 

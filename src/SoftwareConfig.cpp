@@ -8,46 +8,62 @@
 #include "SoftwareConfig.h"
 #include "HardwareConfig.h"
 
-// Read Config from EEPROM
-sConfig_t ReadConfig(int address) {
-  sConfig_t Config;
-  return EEPROM.get(address, Config);
-}
+// Config structure functions
+// read, write, put, verify, print
 
-// Write Config to EEPROM
-void WriteConfig(int address, sConfig_t Config) {
-  EEPROM.put(address, Config);
+// Read Config from EEPROM
+sConfig_t GetConfig(int address) {
+  char Msg[80];
+
+  sConfig_t Config;
+  EEPROM.get(address, Config);
+
+  snprintf(Msg, 80, "GetConfig: EEConf 0x%x, size %d, CRC 0x%x", &Config, sizeof(Config), Config.CRC16);
+  Serial.println(Msg);
+
+  return Config;
 }
 
 // Update Config in EEPROM
 // compare new config with eeprom and update bytes as necessary
-bool UpdateConfig(sConfig_t NewConf) {
-  sConfig_t PromConf = ReadConfig(0);
-  unsigned long PromSize = sizeof(PromConf);
-  unsigned long NewSize  = sizeof(NewConf);
-  if (PromSize != NewSize) {
+void PutConfig(int address, sConfig_t NewConf) {
+  char Msg[80];
+  snprintf(Msg, 80, "PutConfig: NewConf 0x%x, size %d, CRC 0x%x", &NewConf, sizeof(NewConf), NewConf.CRC16);
+  Serial.println(Msg);
+
+  sConfig_t EEConf = GetConfig(address);
+  unsigned long EESize  = sizeof(EEConf);
+  unsigned long NewSize = sizeof(NewConf);
+  snprintf(Msg, 80, "PutConfig: EESize %d, NewSize %d", EESize, NewSize);
+  if (EESize != NewSize) {
     char Msg[80];
-    snprintf(Msg, 80, "UpdateConfig: Size mismatch PromConf %d vs NewConf %d", PromSize, NewSize );
+    snprintf(Msg, 80, "PutConfig: Size mismatch EEConf 0x%x vs * NewConf 0x%x", EESize, NewSize );
     Serial.println(Msg);
+    return;
   }
   // update the CRC
-  NewConf.CRC16 = crc16((uint8_t*) &NewConf, sizeof(NewConf) - sizeof(NewConf.CRC16));
+  NewConf.CRC16 = crc16((uint8_t *) &NewConf, sizeof(NewConf) - sizeof(NewConf.CRC16));
   EEPROM.put(0, NewConf);
+
   bool isChanged = false;
-  for (uint8_t ii = 0; ii < PromSize; ii++){
-    if (((uint8_t *) &NewConf)[ii] != ((uint8_t *) &PromConf)[ii]) {
+  for (uint8_t ii = 0; ii < EESize; ii++){
+    if (((uint8_t *) &NewConf)[ii] != ((uint8_t *) &EEConf)[ii]) {
       char Msg[80];
-      snprintf(Msg, 80, "UpdateConfig: bytes differ idx %d, new %d, prom %d",  ii, ((uint8_t *) &NewConf)[ii], ((uint8_t *) &PromConf)[ii]);
+      snprintf(Msg, 80, "PutConfig: bytes differ idx %d, new %d, prom %d",  ii, ((uint8_t *) &NewConf)[ii], ((uint8_t *) &EEConf)[ii]);
       Serial.println(Msg);
       isChanged = true;
     }
-    
   }
-  return isChanged;
+  return;
 }
 
 bool isConfigValid(sConfig_t Config) {
   uint16_t CRCTest = calcCRC16((uint8_t*) &Config, sizeof(Config) - sizeof(Config.CRC16));
+
+  char Msg[80];
+  snprintf(Msg, 80, "IsConfigValid: Config 0x%x, size %d, CRC 0x%x", &Config, sizeof(Config), Config.CRC16);
+  Serial.println(Msg);
+
   return (CRCTest == Config.CRC16);
 }
 
@@ -72,23 +88,19 @@ sConfig_t InitDefaultConfig() {
   Config.RTS.Enable         = true;         // RTS UP to key Tx
   Config.CTS.Enable         = true;         // CTS UP on ready to modulate
   Config.Timer.Time         = 120;          // sec, 0 means disabled
-  Config.CRC16              = calcCRC16( (uint8_t*) &Config, sizeof(Config) - sizeof(Config.CRC16));
+  Config.CRC16              = calcCRC16((uint8_t *) &Config, sizeof(Config) - sizeof(Config.CRC16));
+
+  char Msg[80];
+  snprintf(Msg, 80, "InitDefaultConfig: Config 0x%x, size %d, CRC 0x%x", &Config, sizeof(Config), Config.CRC16);
+  Serial.println(Msg);
   return Config;
 }
 
-// EEPROM functions
-// read, write and update state
-// verify contents
-//   Step form, Tx delay, Rx delay
-//   RTS enable
-//   CTS enable
-//   Timer enable, time
-// write config from program constants, set checksum
-// update config after user input, set checksum
-// read config when needed
-// check config checksum
-// 
+// pretty print the memory configuration on serial port
 void PrintConfig(sConfig_t Config) {
+  char Msg[80];
+  snprintf(Msg, 80, "PrintConfig: Config 0x%x", (int) &Config);
+  Serial.println(Msg);
   for(int ii = 0; ii < 4; ii++) {
     char Polarity_str[15] = "              ";
     if (Config.Step[ii].TxPolarity == TX_CLOSED) {

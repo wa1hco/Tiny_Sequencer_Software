@@ -52,9 +52,8 @@
 #include "Config.h"
 #include "SequencerStateMachine.h"
 #include "UserInterface.h"
-#include "Global.h"
 
-sConfig_t Config; 
+sConfig_t Config;
 
 //  Setup ATtiny_TimerInterrupt library
 #if !( defined(MEGATINYCORE) )
@@ -156,8 +155,7 @@ void setup() {
 
   Serial.begin(19200);
   Serial.println();
-  Serial.println("Sequencer startup");
-
+  Serial.println("Sequencer startup, V0.1 ");
   // Check Configure and init if necessary
   // if Config in EEPROM is invalid, overwrite with InitConfigStructure()
   // if Config is 
@@ -167,7 +165,17 @@ void setup() {
   //Config = InitDefaultConfig(); // write default values to Config structure
   //PrintConfig(Config);
 
-  Config = ReadConfig( 0 );  // address 0
+  //Config = InitDefaultConfig();
+
+  //snprintf(Msg, 80, "setup: Config 0x%x, size %d, CRC 0x%x", &Config, sizeof(Config), Config.CRC16);
+  //Serial.println(Msg);
+
+  Config = GetConfig(0);  // address 0
+
+  char Msg[80];
+  snprintf(Msg, 80, "setup: Config 0x%x, size %d, CRC 0x%x", &Config, sizeof(Config), Config.CRC16);
+  Serial.println(Msg);
+
   if (isConfigValid(Config)) {
     Serial.println("setup: Config ok, CRC match");
   } else {
@@ -175,9 +183,8 @@ void setup() {
     Serial.print(" write defaults to config");
     Serial.println();
     Config = InitDefaultConfig(); // write default values to Config structure
-    WriteConfig(0, Config);  //save Config structure to EEPROM address 0
+    PutConfig(0, Config);  //save Config structure to EEPROM address 0
   } // if CRC match
-
   
   // Define the form (NO/NC) of step relays wired into the board
   digitalWrite(S1T_PIN, (uint8_t) !Config.Step[0].TxPolarity); // config as receive mode 
@@ -194,14 +201,6 @@ void setup() {
 // this loop is entered seveal seconds after setup()
 // Tx timout is managed at the loop() level, outside of state machine
 void loop() {
-  static bool FirstPass = true;
-
-  // First time through the loop read the configuration data structure from EEPROM
-  // setup() should have ensured a valid configuration or reinitialized
-  if (FirstPass) {   
-    Config = ReadConfig(0);
-    FirstPass = false;
-  }
   
   // UserConfig update the EEPROM after user input
   UserConfig(Config);
