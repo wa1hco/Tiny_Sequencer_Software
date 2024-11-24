@@ -52,8 +52,15 @@
 #include "Config.h"
 #include "SequencerStateMachine.h"
 #include "UserInterface.h"
+#include "Global.h"
 
-sConfig_t Config;
+#include <EEPROM.h>
+
+sConfig_t GlobalConf;
+// define the global variables
+unsigned long ISR_Time;
+unsigned long Min_ISR_Time;
+unsigned long Max_ISR_Time;
 
 //  Setup ATtiny_TimerInterrupt library
 #if !( defined(MEGATINYCORE) )
@@ -95,6 +102,7 @@ sConfig_t Config;
 
 // Called from an timer interrupt
 void SequencerISR() {
+  digitalWrite(XTRA6PIN, HIGH);
   static long          TxTimer_msec; 
   int                  TimeIncrement;
   unsigned long        TimeNow;
@@ -114,10 +122,10 @@ void SequencerISR() {
   bool RTSPositive = !RTSPin;  // key if RTS UP, meaning RTS/ and MCU pin low
   
   bool KeyState = KeyPositive; // hardware Key interface, high = asserted
-  bool RTSState = Config.RTS.Enable & RTSPositive; // USB serial key interface, high = asserted
+  bool RTSState = GlobalConf.RTS.Enable & RTSPositive; // USB serial key interface, high = asserted
 
   if (!KeyState & !RTSState) {  // if unkeyed, reset the tx timeout timer
-    TxTimer_msec = (long) Config.Timer.Time * 1000; //sec to msec
+    TxTimer_msec = (long) GlobalConf.Timer.Time * 1000; //sec to msec
     KeyTimeOut = false;
   } else {
     TxTimer_msec -= (long) TimeIncrement;
@@ -128,16 +136,58 @@ void SequencerISR() {
     TxTimer_msec = 0;               // keep timer from underflowing
     KeyTimeOut = true;
   }
-  bool TimerEnabled = (Config.Timer.Time > 0);
+  bool isTimerDisabled = (GlobalConf.Timer.Time == 0);  // timeout = 0 means disable timeout
 
   // used by state machine, combined from hardware and timeout
-  bool Key = (KeyState || RTSState) & (TimerEnabled) & !KeyTimeOut;  // key in OR RTS AND NOT timeout
-  StateMachine(Config, Key, TimeIncrement);
+  bool Key;
+  if (isTimerDisabled){
+    Key = (KeyState || RTSState);
+  } else {
+    Key = (KeyState || RTSState) & !KeyTimeOut;  // key in OR RTS AND NOT timeout
+  }
+  StateMachine(GlobalConf, Key, TimeIncrement);
+  digitalWrite(XTRA6PIN, LOW);
+}
+
+void hexDump(byte* data, int length) {
+  for (int i = 0; i < length; i++) {
+    Serial.print(String(data[i], HEX)); // Print byte in hex format
+    Serial.print(" "); // Add a space between bytes
+    if ((i % 16) == 15) { // Newline after every 16 bytes
+      Serial.println(); 
+    }
+  }
+  Serial.println(); // Final newline
+
 }
 
 void setup() {  
+  Serial.begin(19200);
+  // Check Configure and init if necessary
+  // if Config in EEPROM is invalid, overwrite with InitConfigStructure()
+  // if Config is 
+  // Read EEPROM
+  // TODO add function to wear level the eeprom
+
+  GlobalConf = GetConfig(0);  // address 0
+
+  // initialize global variables
+  Min_ISR_Time = 999999;
+  Max_ISR_Time = 0;
+
+  if (isConfigValid(GlobalConf)) {
+    Serial.println("setup: GlobalConf ok, CRC match");
+  } else {
+    Serial.print("setup: GlobalConf invalid, CRC mismatch ");
+    Serial.print(" write defaults to EEProm");
+    Serial.println();
+    GlobalConf = InitDefaultConfig(); // write default values to Config structure
+    PutConfig(0, GlobalConf);  //save Config structure to EEPROM address 0
+  } // if CRC match
+  
   // Define the pins, configure i/o
-  InitPins();
+  InitPins(GlobalConf);
+  
   // blink the LED and delay to switch from UPDI to comms
   digitalWrite(LEDPIN, HIGH);
   delay(2000);
@@ -153,49 +203,10 @@ void setup() {
   delay(2000);
   digitalWrite(LEDPIN, HIGH);
 
-  Serial.begin(19200);
-  Serial.println();
-  Serial.println("Sequencer startup, V0.1 ");
-  // Check Configure and init if necessary
-  // if Config in EEPROM is invalid, overwrite with InitConfigStructure()
-  // if Config is 
-  // Read EEPROM
-  // TODO add function to wear level the eeprom
-  
-  //Config = InitDefaultConfig(); // write default values to Config structure
-  //PrintConfig(Config);
-
-  //Config = InitDefaultConfig();
-
-  //snprintf(Msg, 80, "setup: Config 0x%x, size %d, CRC 0x%x", &Config, sizeof(Config), Config.CRC16);
-  //Serial.println(Msg);
-
-  Config = GetConfig(0);  // address 0
-
-  char Msg[80];
-  snprintf(Msg, 80, "setup: Config 0x%x, size %d, CRC 0x%x", &Config, sizeof(Config), Config.CRC16);
-  Serial.println(Msg);
-
-  if (isConfigValid(Config)) {
-    Serial.println("setup: Config ok, CRC match");
-  } else {
-    Serial.print("setup: Config invalid, CRC mismatch ");
-    Serial.print(" write defaults to config");
-    Serial.println();
-    Config = InitDefaultConfig(); // write default values to Config structure
-    PutConfig(0, Config);  //save Config structure to EEPROM address 0
-  } // if CRC match
-  
-  // Define the form (NO/NC) of step relays wired into the board
-  digitalWrite(S1T_PIN, (uint8_t) !Config.Step[0].TxPolarity); // config as receive mode 
-  digitalWrite(S2T_PIN, (uint8_t) !Config.Step[1].TxPolarity); // config as receive mode 
-  digitalWrite(S3T_PIN, (uint8_t) !Config.Step[2].TxPolarity); // config as receive mode 
-  digitalWrite(S4T_PIN, (uint8_t) !Config.Step[3].TxPolarity); // config as receive mode 
-
   CurrentTimer.init();
   if (!CurrentTimer.attachInterruptInterval(TIMER1_INTERVAL_MS * ADJUST_FACTOR, SequencerISR)){
     Serial.println(F("Can't set ITimer. Select another freq. or timer"));
-  }
+  } 
 } // setup()
 
 // this loop is entered seveal seconds after setup()
@@ -203,9 +214,12 @@ void setup() {
 void loop() {
   
   // UserConfig update the EEPROM after user input
-  UserConfig(Config);
+  sConfig_t * pGlobalConf = &GlobalConf;
+  digitalWrite(XTRA5PIN, HIGH);
+  UserConfig(pGlobalConf);
+  digitalWrite(XTRA5PIN, LOW);
 
-  #define LOOPTIMEINTERVAL 10 // msec
+  #define LOOPTIMEINTERVAL 30 // msec
   delay(LOOPTIMEINTERVAL);
 }
 

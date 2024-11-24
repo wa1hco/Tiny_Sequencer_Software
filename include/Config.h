@@ -6,7 +6,7 @@
 // Configuration structure used for program and EEPROM
 struct sConfig_t {
   struct sStep {        // Array of sequence step configs
-    uint8_t TxPolarity; // Tx state, Open or Closed
+    uint8_t RxPolarity; // Rx state, "normal" state Open or Closed
     uint8_t Tx_msec;    // msec
     uint8_t Rx_msec;    // msec
   } Step[4]; 

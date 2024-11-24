@@ -1,6 +1,7 @@
 #ifndef HardwareConfig_h
 #define HardwareConfig_h
 
+#include "Config.h"
 #include <Arduino.h> // get the pin names
 
 //  ATTinyX16, QFN-20, Hardware Pin Definitions, lower case means secondary pin location
@@ -70,8 +71,8 @@
 
 // Sequencer board design drives high to light the LED in the optoisolator, which causes the contacts to close,
 // Optoisolator LED drives gates of back to back MOSFETS, so normally open
-#define TX_CLOSED HIGH  // On TX, drive MCU pin high to close output contacts
-#define TX_OPEN   LOW   // On TX, drvie MCU pin low to open output contacts
+#define CLOSED HIGH  // On TX, drive MCU pin high to close output contacts
+#define OPEN   LOW   // On TX, drvie MCU pin low to open output contacts
 
 // Hardware design 
 // defines how the optoisolators connect to MCU, 
@@ -92,6 +93,6 @@
 #define TX_PIN  0
 
 // Public function
-void InitPins(void);
+void InitPins(sConfig_t Config);
 
 #endif

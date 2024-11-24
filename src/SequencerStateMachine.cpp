@@ -61,14 +61,16 @@ State_t StateTimer (sConfig_t Config, State_t prevState, State_t State, State_t 
   // State change on this pass
   if (prevState != State) { 
     if ((State >= S1T) & (State <= S4T)) {                    // States for transition from Rx to Tx 
-      digitalWrite(StepPin[State], (uint8_t) Config.Step[S1T - 1].TxPolarity);
+      digitalWrite(StepPin[State], (uint8_t) !Config.Step[S1T - S1T].RxPolarity);
       StepTime = Config.Step[State - 1].Tx_msec;             // initialize the timer
     }    
     if ((State >= S4R) & (State <= S1R)) {                   // States for transition from Tx to Rx
-      digitalWrite(StepPin[State], (uint8_t) !Config.Step[S1R - 6].TxPolarity);
+      digitalWrite(StepPin[State], (uint8_t) Config.Step[S1R - S4R].RxPolarity);
       StepTime = Config.Step[State - 6].Rx_msec;             // initialize the timer
     }
-    newStateMsg(Config, prevState, State, StepTime);         // debug message
+    #ifdef DEBUG
+      newStateMsg(Config, prevState, State, StepTime);         // debug message
+    #endif
   } // if state change 
 
   StepTime -= TimeLoop;
@@ -107,9 +109,11 @@ void StateMachine(sConfig_t Config, bool Key, int TimeLoop) {
   State = nextState; 
   switch (State) {
     case Rx: 
+      #ifdef DEBUG
       if (prevState != State) {  // first time looping through Rx state
         newStateMsg(Config, prevState, State, 0); // State debug with no timer
       }
+      #endif
       // watch for Key asserted, and transition to first Tx state
       if (Key) { // Keyed
         //Serial.println("State Rx, key asserted");  
@@ -154,7 +158,9 @@ void StateMachine(sConfig_t Config, bool Key, int TimeLoop) {
 
     case Tx: 
       if (prevState != State) {
+        #ifdef DEBUG
         newStateMsg(Config, prevState, State, 0);
+        #endif
         // TODO, if Config.CTS.Enable...
         digitalWrite(CTSPIN, CTS_UP);
       }
