@@ -54,6 +54,8 @@
 #include "UserInterface.h"
 #include "Global.h"
 
+#include <stdlib.h>
+#include <errno.h>
 #include <EEPROM.h>
 
 sConfig_t GlobalConf;
@@ -162,7 +164,7 @@ void hexDump(byte* data, int length) {
 }
 
 void setup() {  
-  Serial.begin(19200);
+  Serial.begin(57600);
   // Check Configure and init if necessary
   // if Config in EEPROM is invalid, overwrite with InitConfigStructure()
   // if Config is 
@@ -170,10 +172,6 @@ void setup() {
   // TODO add function to wear level the eeprom
 
   GlobalConf = GetConfig(0);  // address 0
-
-  // initialize global variables
-  Min_ISR_Time = 999999;
-  Max_ISR_Time = 0;
 
   if (isConfigValid(GlobalConf)) {
     Serial.println("setup: GlobalConf ok, CRC match");
@@ -187,7 +185,7 @@ void setup() {
   
   // Define the pins, configure i/o
   InitPins(GlobalConf);
-  
+
   // blink the LED and delay to switch from UPDI to comms
   digitalWrite(LEDPIN, HIGH);
   delay(2000);
@@ -214,12 +212,13 @@ void setup() {
 void loop() {
   
   // UserConfig update the EEPROM after user input
-  sConfig_t * pGlobalConf = &GlobalConf;
   digitalWrite(XTRA5PIN, HIGH);
-  UserConfig(pGlobalConf);
+
+  UserConfig(&GlobalConf);
+  
   digitalWrite(XTRA5PIN, LOW);
 
-  #define LOOPTIMEINTERVAL 30 // msec
+  #define LOOPTIMEINTERVAL 300 // msec
   delay(LOOPTIMEINTERVAL);
 }
 

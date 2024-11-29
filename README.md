@@ -1,16 +1,20 @@
 This sequencer software is a program for use with the ATTiny1616 
 microcontroller, copyright 2024 by jeff millar, wa1hco.  The software is 
-licensed under theCreative Commons Share and Attribute license.  The development 
+licensed under the Creative Commons Share and Attribute license.  The development 
 environment is VS Code...it just ended up too big for the Arduino IDE.
 
 The software supports one Key input and 4 contact closure outputs.
 Key input is an optoisolator diode with voltage and current limiting.
-The Key input is asserted when 5 to 15 volts is present on the terminal.
-The Key input has about 2.2K impedance.
-The user can configure the two isolated Key contacts for Volts to Key 
+The Key input 
+    asserted when 5 to 15 volts is present on the terminal.
+    about 2.2K input impedance.
+The user can wire the two isolated Key contacts for Volts to Key 
 or Ground to key.
-Each output is contact closure configurable for normally CLOSED or OPEN 
-state when not keyed. But when powered off, the contacts are OPEN.
+Each output is contact closure configurable for a receive state of OPEN or CLOSED. 
+When powered off, the contacts are OPEN.
+
+The sequencer uses an ATTiny1616 microcontroller which uses a single pin UPDI
+programming interface.
 
 Other features of the software
 * optional USB serial communication with a computer
@@ -64,4 +68,3 @@ Here are more details from the software comments
 //   Key inputs are converted High true logic and OR'd together
 //   Key is AND'd with TxTimout
 //   RX state will reset TxTimeout if key signal and RTS both released
-
