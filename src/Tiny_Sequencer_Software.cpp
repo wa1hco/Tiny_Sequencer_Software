@@ -160,7 +160,6 @@ void hexDump(byte* data, int length) {
     }
   }
   Serial.println(); // Final newline
-
 }
 
 void setup() {  
@@ -171,35 +170,36 @@ void setup() {
   // Read EEPROM
   // TODO add function to wear level the eeprom
 
-  GlobalConf = GetConfig(0);  // address 0
+  // Define the pins, configure i/o
+  InitPins();
 
-  if (isConfigValid(GlobalConf)) {
-    Serial.println("setup: GlobalConf ok, CRC match");
-  } else {
-    Serial.print("setup: GlobalConf invalid, CRC mismatch ");
-    Serial.print(" write defaults to EEProm");
-    Serial.println();
+  // blink the LED and delay to switch from UPDI to comms
+  digitalWrite(LEDPIN, HIGH);
+  delay(100);
+  digitalWrite(LEDPIN, LOW);
+  delay(100);
+  digitalWrite(LEDPIN, HIGH);
+  delay(100);
+  digitalWrite(LEDPIN, LOW);
+  delay(100);
+  digitalWrite(LEDPIN, HIGH);
+  delay(100);
+  digitalWrite(LEDPIN, LOW);
+  delay(100);
+  digitalWrite(LEDPIN, HIGH);
+
+  // EEPROM is preserved through reset and power cycle, but cleared to 0xFF during programming
+  if (!isConfigValid(GlobalConf)) {
+    char Msg[80];
     GlobalConf = InitDefaultConfig(); // write default values to Config structure
     PutConfig(0, GlobalConf);  //save Config structure to EEPROM address 0
   } // if CRC match
   
-  // Define the pins, configure i/o
-  InitPins(GlobalConf);
-
-  // blink the LED and delay to switch from UPDI to comms
-  digitalWrite(LEDPIN, HIGH);
-  delay(2000);
-  digitalWrite(LEDPIN, LOW);
-  delay(2000);
-  digitalWrite(LEDPIN, HIGH);
-  delay(2000);
-  digitalWrite(LEDPIN, LOW);
-  delay(2000);
-  digitalWrite(LEDPIN, HIGH);
-  delay(2000);
-  digitalWrite(LEDPIN, LOW);
-  delay(2000);
-  digitalWrite(LEDPIN, HIGH);
+  // Define the form (NO/NC) of step relays wired into the board
+  digitalWrite(S1T_PIN, (uint8_t) GlobalConf.Step[0].RxPolarity); // config as receive mode 
+  digitalWrite(S2T_PIN, (uint8_t) GlobalConf.Step[1].RxPolarity); // config as receive mode 
+  digitalWrite(S3T_PIN, (uint8_t) GlobalConf.Step[2].RxPolarity); // config as receive mode 
+  digitalWrite(S4T_PIN, (uint8_t) GlobalConf.Step[3].RxPolarity); // config as receive mode 
 
   CurrentTimer.init();
   if (!CurrentTimer.attachInterruptInterval(TIMER1_INTERVAL_MS * ADJUST_FACTOR, SequencerISR)){

@@ -93,6 +93,6 @@
 #define TX_PIN  0
 
 // Public function
-void InitPins(sConfig_t Config);
+void InitPins();
 
 #endif

@@ -13,7 +13,7 @@
 // read, write, put, verify, print
 
 // Read Config from EEPROM
-sConfig_t GetConfig(int address) {
+sConfig_t GetConfig(uint8_t address) {
   sConfig_t EEConf;
   EEPROM.get(address, EEConf);
   return EEConf;
@@ -21,10 +21,10 @@ sConfig_t GetConfig(int address) {
 
 // Update Config in EEPROM
 // compare new config with eeprom and update bytes as necessary
-void PutConfig(int address, sConfig_t NewConf) {
+void PutConfig(uint8_t address, sConfig_t EEConf) {
   // update the CRC
-  NewConf.CRC16 = CalcCRC(NewConf);
-  EEPROM.put(0, NewConf);
+  EEConf.CRC16 = CalcCRC(EEConf);
+  EEPROM.put(address, EEConf);
   return;
 }
 
@@ -69,7 +69,6 @@ sConfig_t InitDefaultConfig() {
 // pretty print the memory configuration on serial port
 void PrintConfig(sConfig_t Config) {
   char Msg[80];
-  Serial.println();
   Serial.println("Tiny Sequencer, V0.1 Config");
   for(int ii = 0; ii < 4; ii++) {
     char Polarity_str[15] = "              ";
