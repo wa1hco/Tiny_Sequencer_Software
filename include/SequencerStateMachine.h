@@ -7,6 +7,7 @@
 
 // Public funtion
 void StateMachine(sConfig_t Config, bool Key, int TimeLoop);
+void SequencerISR();
 
 #endif
 

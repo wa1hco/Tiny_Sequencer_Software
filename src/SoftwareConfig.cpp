@@ -55,21 +55,19 @@ sConfig_t InitDefaultConfig() {
   Config.Step[3].RxPolarity = OPEN;
   Config.Step[3].Tx_msec    = 75;
   Config.Step[3].Rx_msec    = 75;
-  Config.RTS.Enable         = false;        // RTS UP to key Tx
-  Config.CTS.Enable         = false;        // CTS UP on ready to modulate
-  Config.Timer.Time         = 120;          // sec, 0 means disabled
+  Config.RTSEnable          = false;        // RTS UP to key Tx
+  Config.CTSEnable          = false;        // CTS UP on ready to modulate
+  Config.Timeout            = 120;          // sec, 0 means disabled
   Config.CRC16              = CalcCRC(Config);
 
-  char Msg[80];
-  snprintf(Msg, 80, "InitDefaultConfig: Config 0x%x, size %d, CRC 0x%x", &Config, sizeof(Config), Config.CRC16);
-  Serial.println(Msg);
+  PrintConfig(Config);
   return Config;
 }
 
 // pretty print the memory configuration on serial port
 void PrintConfig(sConfig_t Config) {
   char Msg[80];
-  Serial.println("Tiny Sequencer, V0.1 Config");
+  Serial.println("Tiny Sequencer, V0.3 Config");
   for(int ii = 0; ii < 4; ii++) {
     char Polarity_str[15] = "              ";
     if (Config.Step[ii].RxPolarity == OPEN) {
@@ -82,7 +80,7 @@ void PrintConfig(sConfig_t Config) {
   }
 
   Serial.print("RTS   ");
-  if (Config.RTS.Enable == true){
+  if (Config.RTSEnable == true){
     Serial.print("Enabled, ");
   } else {
     Serial.print("Disabled, ");
@@ -90,7 +88,7 @@ void PrintConfig(sConfig_t Config) {
   Serial.println();
 
   Serial.print("CTS   ");
-  if (Config.CTS.Enable == true){
+  if (Config.CTSEnable == true){
     Serial.print("Enabled");
   } else {
     Serial.print("Disabled");
@@ -98,7 +96,7 @@ void PrintConfig(sConfig_t Config) {
   Serial.println();
 
   Serial.print("Tx Timer ");
-  unsigned int Timeout = Config.Timer.Time;
+  unsigned int Timeout = Config.Timeout;
   if (Timeout == 0) {
     Serial.println("Disabled");
   } else {

@@ -59,10 +59,14 @@
 #include <EEPROM.h>
 
 sConfig_t GlobalConf;
+char Msg[80];
+
+#ifdef DEBUG
 // define the global variables
 unsigned long ISR_Time;
 unsigned long Min_ISR_Time;
 unsigned long Max_ISR_Time;
+#endif
 
 //  Setup ATtiny_TimerInterrupt library
 #if !( defined(MEGATINYCORE) )
@@ -102,55 +106,8 @@ unsigned long Max_ISR_Time;
 
 #define ADJUST_FACTOR         ( (float) 0.99850 )
 
-// Called from an timer interrupt
-void SequencerISR() {
-  digitalWrite(XTRA6PIN, HIGH);
-  static long          TxTimer_msec; 
-  int                  TimeIncrement;
-  unsigned long        TimeNow;
-  static unsigned long TimePrevious = millis(); // initialize
-  bool KeyTimeOut; // used by Tx timout management in loop()
 
-  TimeNow = millis();
-  TimeIncrement = (unsigned int)(TimeNow - TimePrevious);
-  TimePrevious = TimeNow;
-
-  // Convert Key input to positive true logic
-  uint8_t KeyPin = digitalRead(KEYPIN);  // low when opto led on
-  uint8_t KeyPositive = !KeyPin; // MCU Pin state, Opto off, pin pulled up, Opto ON causes low
-  
-  // Convert RTS input to positive true logic
-  bool RTSPin = digitalRead(RTSPIN);
-  bool RTSPositive = !RTSPin;  // key if RTS UP, meaning RTS/ and MCU pin low
-  
-  bool KeyState = KeyPositive; // hardware Key interface, high = asserted
-  bool RTSState = GlobalConf.RTS.Enable & RTSPositive; // USB serial key interface, high = asserted
-
-  if (!KeyState & !RTSState) {  // if unkeyed, reset the tx timeout timer
-    TxTimer_msec = (long) GlobalConf.Timer.Time * 1000; //sec to msec
-    KeyTimeOut = false;
-  } else {
-    TxTimer_msec -= (long) TimeIncrement;
-  }
-  
-  // if Tx timer timeout, set KeyTimeOut flag
-  if (TxTimer_msec <= 0) {
-    TxTimer_msec = 0;               // keep timer from underflowing
-    KeyTimeOut = true;
-  }
-  bool isTimerDisabled = (GlobalConf.Timer.Time == 0);  // timeout = 0 means disable timeout
-
-  // used by state machine, combined from hardware and timeout
-  bool Key;
-  if (isTimerDisabled){
-    Key = (KeyState || RTSState);
-  } else {
-    Key = (KeyState || RTSState) & !KeyTimeOut;  // key in OR RTS AND NOT timeout
-  }
-  StateMachine(GlobalConf, Key, TimeIncrement);
-  digitalWrite(XTRA6PIN, LOW);
-}
-
+#ifdef DEBUG
 void hexDump(byte* data, int length) {
   for (int i = 0; i < length; i++) {
     Serial.print(String(data[i], HEX)); // Print byte in hex format
@@ -161,6 +118,7 @@ void hexDump(byte* data, int length) {
   }
   Serial.println(); // Final newline
 }
+#endif
 
 void setup() {  
   Serial.begin(57600);
@@ -189,17 +147,11 @@ void setup() {
   digitalWrite(LEDPIN, HIGH);
 
   // EEPROM is preserved through reset and power cycle, but cleared to 0xFF during programming
+  GlobalConf = GetConfig(0);
   if (!isConfigValid(GlobalConf)) {
-    char Msg[80];
     GlobalConf = InitDefaultConfig(); // write default values to Config structure
     PutConfig(0, GlobalConf);  //save Config structure to EEPROM address 0
   } // if CRC match
-  
-  // Define the form (NO/NC) of step relays wired into the board
-  digitalWrite(S1T_PIN, (uint8_t) GlobalConf.Step[0].RxPolarity); // config as receive mode 
-  digitalWrite(S2T_PIN, (uint8_t) GlobalConf.Step[1].RxPolarity); // config as receive mode 
-  digitalWrite(S3T_PIN, (uint8_t) GlobalConf.Step[2].RxPolarity); // config as receive mode 
-  digitalWrite(S4T_PIN, (uint8_t) GlobalConf.Step[3].RxPolarity); // config as receive mode 
 
   CurrentTimer.init();
   if (!CurrentTimer.attachInterruptInterval(TIMER1_INTERVAL_MS * ADJUST_FACTOR, SequencerISR)){
@@ -211,14 +163,14 @@ void setup() {
 // Tx timout is managed at the loop() level, outside of state machine
 void loop() {
   
-  // UserConfig update the EEPROM after user input
   digitalWrite(XTRA5PIN, HIGH);
 
+  // UserConfig update the EEPROM after user input
   UserConfig(&GlobalConf);
-  
+
   digitalWrite(XTRA5PIN, LOW);
 
-  #define LOOPTIMEINTERVAL 300 // msec
+  #define LOOPTIMEINTERVAL 30 // msec
   delay(LOOPTIMEINTERVAL);
 }
 

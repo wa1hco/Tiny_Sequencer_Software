@@ -11,6 +11,7 @@
 #include "UserInterface.h"
 #include "HardwareConfig.h"
 #include "SoftwareConfig.h"
+#include "Global.h"
 #include <SerialReadLine.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -19,35 +20,31 @@
 
 // User command states
 enum UserConfigState {
-  top,            // display top info, go to userCmd
-   userCmd,       // wait for command {s, r, c, t, d i, h}
-    stepNum,      // wait for number {1, 2, 3, 4}
+  top,            // display top info, go to cmd
+   cmd,           // wait for command {s, r, c, t, d i, h}
+    stepIdx,      // wait for number {1, 2, 3, 4}
       stepArg,    // wait for step command {t, r, o, c}
-        Tx_msec,  // wait for msec
-        Rx_msec,  // wait for msec
+        msec,     // wait for msec
     rts,          // wait for {enable, disable}
     cts,          // wait for {enable, disable}
     timeout,      // wait for Time, seconds 0 means disabled
-    display,      // PrintConfig(), go to userCmd
+    display,      // PrintConfig(), go to cmd
     initialize,   // InitDefaultConfig()
-    prom,         // get the configuration from EEPROM, check CRC
     help,         // PrintHelp()
     err           // user input not understood, go to top
 };
 
 // convienent char arrays for debug messages
 const char *userStateName[][15] = {"top", 
-                                     "userCmd", 
-                                       "stepNum", 
+                                     "cmd", 
+                                       "stepIdx", 
                                          "stepArg", 
-                                           "Tx_msec", 
-                                           "Rx_msec", 
+                                           "msec", 
                                        "rts", 
                                        "cts", 
                                        "timeout", 
                                        "display", 
                                        "init", 
-                                       "prom",
                                        "help", 
                                        "err"};
 
@@ -55,10 +52,34 @@ const char *userStateName[][15] = {"top",
 static UserConfigState prevUCS = err;
 static UserConfigState UCS = err;
 static UserConfigState nextUCS = top;
-char Msg[80];
 
 #define LINELEN 40
 char Line[LINELEN + 1];   // Line of user text needs to be available to multiple functions
+
+void PrintHelp() {
+  Serial.println("This is help for the user interface.");
+  Serial.println("The user enters command and parameters, MCU echos after end of line");
+  Serial.println("Input can be one token at a time or all the tokens for a command");
+  Serial.println("Top level: 'S'tep, 'R'TS, 'C'TS, 'T'imeout, 'D'isplay, 'P'rom, 'I'nitialize, 'H'elp");
+  Serial.println("Step {Step number 0 to 3} {'T'x delay, 'R'x delay, 'O'pen on rx, 'C'losed on rx}");
+  Serial.println("RTS {'E'nable, 'D'isable}");
+  Serial.println("CTS {'E'nable, 'D'isable}");
+  Serial.println("Timeout 0 to 255 seconds, Tx timeout, 0 means disable");
+  Serial.println("Display, print working configuration");
+  Serial.println("Initialize, reset configuration to programmed defaults");
+  Serial.println("Help, print this text");
+  Serial.println("Changes are automatically written to EEPROM");
+  Serial.println("'reset' command, spelled out, simulates power cycle");
+  Serial.println("Examples...");
+  Serial.println("   's 0 t 100' step 0 tx delay 100 msec");
+  Serial.println("   'step 0 tx 100' step 0 tx delay 100 msec, long form");
+  Serial.println("   's 3 o, step 3 Open on Rx");
+  Serial.println("   'r e', RTS enable");
+  Serial.println("   't 120', tx timeout 120 seconds");
+  Serial.println("   't 1', tx timeout disabled");
+  Serial.println("   'd', display configuration");
+  Serial.println("   'i', initialize to programmed defaults");
+}
 
 // Called after each case statement for user state machine
 // token exists in strtok() buffer, return point to it
@@ -86,7 +107,8 @@ char * GetNextToken(const char * Prompt) {
     return NULL;
   }
 
-  if (reader.len() > LINELEN) { 
+  uint8_t LineLen = reader.len();
+  if (LineLen > LINELEN) { 
     char LineFlush[reader.len()];
     reader.read(LineFlush);
     Serial.println("GetNextToken: error, user input too long for Line[40]");
@@ -94,7 +116,7 @@ char * GetNextToken(const char * Prompt) {
   }
 
   reader.read(Line);  // copy into local buffer
-  snprintf(Msg, 80, "User entered '%s', %d char", Line, reader.len());
+  snprintf(Msg, 80, "User entered '%s', %d char", Line, LineLen);
   Serial.println(Msg);
 
   Token = strtok(Line, " ");  // update strtok buffer with new line
@@ -104,24 +126,26 @@ char * GetNextToken(const char * Prompt) {
   return Token;  
 } // GetNextToken
 
-// get the step number from 1 to 4
-// TODO figure out 0 to 3 vs 1 to 4
-int8_t GetStepNum(char * Token) {
+// get the step index from 0 to 3
+// returns 0 to 3 or -1 if error
+int8_t GetStepIdx(char * Token) {
   char * endptr;
-  long lStepNum = strtol(Token, &endptr, 10);
+  long lStepIdx = strtol(Token, &endptr, 10);
 
   if (errno == ERANGE) {
-    Serial.println("GetStepNum: value out of range");
+    Serial.println("GetStepIdx: strtol() ERANGE");
     return -1;
   } else if (endptr == Token) {
-    Serial.println("GetStepNum: (endptr == Token), no conversion");
+    Serial.println("GetStepIdx: (endptr == Token), no conversion");
     return -1;
   } else if (*endptr != '\0') {
-    snprintf(Msg, 80, "GetStepNum: Token %x, '%s', endptr %x, '%s', ", Token, endptr, endptr);
+    snprintf(Msg, 80, "GetStepIdx: Token %x, '%s', endptr %x, '%s', ", Token, endptr, endptr);
     Serial.println(Msg);
     return -1;
+  } else if ((lStepIdx < 0) | (lStepIdx > 3)) {
+    return -1;
   } else {
-    return static_cast <int8_t> (lStepNum);
+    return static_cast <int8_t> (lStepIdx);
   }
 }
 
@@ -129,15 +153,15 @@ int8_t GetStepNum(char * Token) {
 #define CLOSED HIGH
 
 void UserConfig(sConfig_t *pConfig) {
-  // define the MCU pin output level for Open on Rx or Closed on Rx
   sConfig_t Config = *pConfig;  // Make a local copy of the config
   char * Token;
   char * endptr;
   long lmsec;
-  
+
   // these variable get passed from state call to state call
-  static uint8_t StepNum;
-  static char    userCmdChar;  // used for token processing
+  static uint8_t StepIdx;  // step command index number, {0 to 3}
+  static char    StepArg;  // step command argument {Tx, Rx, Open, Closed}
+  static char    CmdChar;  // used for token processing
 
   prevUCS = UCS;
   UCS = nextUCS;  
@@ -147,60 +171,53 @@ void UserConfig(sConfig_t *pConfig) {
   case top: // nextUCS initialized to top, then shifted to UCS
     Serial.println("UserIntf: switch(UCS) top");
     PrintConfig(Config);
-    nextUCS = userCmd;
+    nextUCS = cmd;
     break;
 
-  case userCmd: // wait for user command, next state based on first letter
+  case cmd: // wait for user command, next state based on first letter
     Token = GetNextToken("Command list: Step, RTS, CTS, Timeout, Display, Prom, Init, Help");
     if (Token == NULL) {
       break;
     }
-    userCmdChar = (char) tolower(Token[0]);
-
-    switch (userCmdChar) { // switch on first character of first token
-    case 's':
-      nextUCS = stepNum; // wait for number {1, 2, 3, 4}
-      break;
-    case 'r':
-      nextUCS = rts;     // wait for {enable, disable}
-      break;
-    case 'c':
-      nextUCS = cts;     // wait for {enable, disable}
-      break;
-    case 't':
-      nextUCS = timeout; // wait for seconds
-      break;
-    case 'd': 
-      nextUCS = display;
-      break;
-    case 'i':            // reinitialize config
-      Config = InitDefaultConfig();
-      nextUCS = top;
-      break;
-    case 'p':            // read from eeprom and display
-      {  // needed because creating variable
-        Serial.println("Get config from EEPROM, check CRC, dispaly");
-        Config = GetConfig(0);
-        uint16_t CRC = CalcCRC(Config);
-        if (Config.CRC16 != CRC) {
-          snprintf(Msg, 80, "UserInterface: bad CRC, EEPROM %x, Calc %x", Config.CRC16, CRC);
-          Serial.println(Msg);
-        }
-        PrintConfig(Config);
-        nextUCS = userCmd;
+    // check if user entered 'reset'
+    { // needed to create variable
+      int userReset = strcmp(Token, "reset");
+      if (userReset == 0) {
+        _PROTECTED_WRITE(RSTCTRL.SWRR,1); 
+        // should not get here
+        nextUCS = cmd; 
         break;
       }
-    case 'h': 
-      nextUCS = help;
-      break;
-    default:
-      Serial.println("UserInterface: switch(userCmd) default, invalid command");
-      nextUCS = top;
-
-    } // switch (userCmdChar)
-
-    // nextUCS has been set from user command character
-    break; // switch(UCS) case userCmd:
+    }
+    CmdChar = (char) tolower(Token[0]);
+    switch (CmdChar) { // switch on first character of first token
+      case 's':
+        nextUCS = stepIdx; // wait for number {1, 2, 3, 4}
+        break;
+      case 'r':
+        nextUCS = rts;     // wait for {enable, disable}
+        break;
+      case 'c':
+        nextUCS = cts;     // wait for {enable, disable}
+        break;
+      case 't':
+        nextUCS = timeout; // wait for seconds
+        break;
+      case 'd': 
+        nextUCS = display;
+        break;
+      case 'i':            // reinitialize config
+        Config = InitDefaultConfig();
+        nextUCS = top;
+        break;
+      case 'h': 
+        nextUCS = help;
+        break;
+      default:
+        Serial.println("UserInterface: switch(cmd) default, invalid command");
+        nextUCS = top;
+    } // switch (CmdChar)
+    break; // switch(UCS) case cmd:
 
   case rts: // wait for enable or disable
     Token = GetNextToken("RTS, enter {Enable, Disable");
@@ -210,13 +227,13 @@ void UserConfig(sConfig_t *pConfig) {
     switch (tolower(Token[0])) {
     case 'e':
       //Serial.println("RTS enabled");
-      Config.RTS.Enable = true;
-      nextUCS = userCmd;
+      Config.RTSEnable = true;
+      nextUCS = cmd;
       break;
     case 'd':
       //Serial.println("RTS Disabled");
-      Config.RTS.Enable = false;
-      nextUCS = userCmd;
+      Config.RTSEnable = false;
+      nextUCS = cmd;
       break;
     default:
       Serial.println("UserInterface: rts {Enable, Disable} not found");
@@ -231,20 +248,22 @@ void UserConfig(sConfig_t *pConfig) {
     switch (tolower(Token[0])) {
     case 'e':
       Serial.println("CTS enabled");
-      Config.CTS.Enable = true;
-      nextUCS = userCmd;
+      Config.CTSEnable = true;
+      nextUCS = cmd;
       break;
     case 'd':
       Serial.println("CTS Disabled");
-      Config.CTS.Enable = false;
-      nextUCS = userCmd;
+      Config.CTSEnable = false;
+      nextUCS = cmd;
       break;
     default:
       Serial.println("UserInterface: rts {Enable, Disable} not found");
-      nextUCS = userCmd;
+      nextUCS = cmd;
     }
+    #ifdef DEBUG
     snprintf(Msg, 80, "UserInterface: case cts: after switch(Token[0])");
     Serial.println(Msg);
+    #endif
     break; // case cts:
 
   case timeout: // wait for timeout in seconds
@@ -254,24 +273,25 @@ void UserConfig(sConfig_t *pConfig) {
     } else {
       unsigned long ulTimeout = strtoul(Token, &endptr, 10);
       if (endptr == Token) {
+        #ifdef DEBUG
         snprintf(Msg, 80, "UserInterface: user entry -%s- not an (unsigned long)", Token);
         Serial.println(Msg);
-        nextUCS = userCmd;
+        #endif
+        nextUCS = cmd;
         break; // case timeout, start command over
       } else {
-        Config.Timer.Time = (unsigned int) ulTimeout;
-        nextUCS = userCmd;
+        Config.Timeout = (unsigned int) ulTimeout;
+        nextUCS = cmd;
         break;
       }
     }
     Serial.println("UserInterface: case timeout; after if(Token), should not get here;");
-    nextUCS = userCmd;
+    nextUCS = cmd;
     break; // switch(UCS) case timeout:
 
   case display:
-    Serial.println("Working Config");
     PrintConfig(Config);
-    nextUCS = userCmd;
+    nextUCS = cmd;
     break;
 
   case initialize:
@@ -279,126 +299,88 @@ void UserConfig(sConfig_t *pConfig) {
     break; // switch(UCS) case initialize:
 
   case help:
-    Serial.println("This is help of the user interface.");
-    Serial.println("The user enters characters and numbers, MCU does not echo them");
-    Serial.println("Input can be one token at a time or all the tokens for a command");
-    Serial.println("Top level: Step, RTS, CTS, Timeout, Display, Initialize, Help");
-    Serial.println("Step {Step number 0 to 3} {Tx delay, Rx delay, Open on rx, Closed on rx}");
-    Serial.println("   's 0 t 100' step 0 tx delay 100 msec");
-    Serial.println("   's 3 o, step 3 Open on Rx");
-    Serial.println("RTS {enable, disable}");
-    Serial.println("   'r e', RTS enable");
-    Serial.println("CTS {enable, disable}");
-    Serial.println("Timeout 0 to 255 seconds, Tx timeout in seconds, 0 means disable");
-    Serial.println("Display, print current configuration");
-    Serial.println("Initialize, reset configuration to software defaults");
-    Serial.println("Changes are automatically written to EEPROM");
-    Serial.println("Help, print this text");
-    nextUCS = userCmd;
+    PrintHelp();
+    nextUCS = cmd;
     break; // switch(UCS) case help:
 
   // ******** states that wait for arguments to user commands *********
-  case stepNum: // wait for sequencer step number
-    // called after 's' entered by user
+  case stepIdx: // wait for sequencer step number
     // read step number
     Token = GetNextToken("GetStepState: enter sequence step number");
     if (Token == NULL) {
       break;
-    }  else { // enclosed because new variable declared
-      int8_t StepNumTmp = GetStepNum(Token);
-      if (StepNumTmp < 0) {
-        Serial.println("UserInterface: StepNumTmp < 0, try again");
-        nextUCS = userCmd;
+    }  
+    { // enclosed because new variable declared in this case:
+      int8_t StepIdxTmp = GetStepIdx(Token);
+      if (StepIdxTmp < 0) { // error detected, not value in range 0:3
+        Serial.println("UserInterface: invalid StepIdx");
+        nextUCS = cmd;
         break;
       }
-      StepNum = (uint8_t) StepNumTmp;
-      if ((StepNum >= 0) & (StepNum <= 3)) {  //stepnum ranges from 0 to 3
-        nextUCS = stepArg;
-        break; // StepNum ok
-      } else {
-        snprintf(Msg, 80, "UserInterface: StepNum %d, out of range", StepNum);
-        nextUCS = userCmd;
-        break;
-      }
-    } // if (Token)
-
-  case stepArg: // wait for arguments to step command
-    {
-      Token = GetNextToken("stepArg: {Tx msec, Rx msec, Open or Closed on rx}");
-      if (Token == NULL) {
-        break;
-      } else { // enclosed because variable declared
-        char ArgChar = tolower(Token[0]);
-        switch (ArgChar) {
-          case 't':
-            nextUCS = Tx_msec;
-            break;
-
-          case 'r':
-            nextUCS = Rx_msec;
-            break;
-
-          case 'o':
-            Serial.println("UserInterface: StepState Open on RX");
-            Config.Step[StepNum].RxPolarity = OPEN;
-            nextUCS = userCmd; // step # open, command complete
-            break;
-
-          case 'c':
-            Serial.println("UserInterface: StepState Closed on RX");
-            Config.Step[StepNum].RxPolarity = CLOSED;
-            nextUCS = userCmd; // step # closed, command complete
-            break;
-
-          default:
-            Serial.println("UserInterface: invalid input to step command");
-            break;
-
-        } // switch (ArgChar)
-      } // if (Token)
+      StepIdx = (uint8_t) StepIdxTmp;
+      nextUCS = stepArg;
+      break; // StepIdx ok
     }
 
-  case Rx_msec: // wait for Tx or Rx delay msec, 0 to 255
-    Token = GetNextToken("enter Rx_msec, 0 to 255");
+  case stepArg: // wait for arguments to step command
+    Token = GetNextToken("stepArg: {Tx msec, Rx msec, Open or Closed on rx}");
     if (Token == NULL) {
       break;
-    } else { // enclosed because variable declared
-      lmsec = strtol(Token, &endptr, 10);
-      if (endptr == Token) {
-        Serial.print("UserInterface: strtol(Tx_msec) failed , try again");
-        break;
-      }
-      if ((lmsec > 255) | (lmsec < 0)) {
-        Serial.println("UserInterface: Sequence delay msec out of range, try again");
-        break;
-      }
-      snprintf(Msg, 80, "UserInterface: case Rx_msec StepNum %d", StepNum);
-      Serial.println(Msg);
-      Config.Step[StepNum].Rx_msec = (uint8_t) lmsec;
-      nextUCS = userCmd;
-      break; // case Rx_msec:
-    } // if (Token)
-    
-  case Tx_msec: // wait for Tx or Rx delay msec, 0 to 255
-    Token = GetNextToken("enter Tx msec, 0 to 255}");
+    } 
+    { // enclosed because variable declared
+      StepArg = (char) tolower(Token[0]);
+      switch (StepArg) {
+        case 't':
+          nextUCS = msec;
+          break;
+        case 'r':
+          nextUCS = msec;
+          break;
+        case 'o':
+          //Serial.println("UserInterface: StepState Open on RX");
+          Config.Step[StepIdx].RxPolarity = OPEN;
+          nextUCS = cmd; // step # open, command complete
+          break;
+        case 'c':
+          //Serial.println("UserInterface: StepState Closed on RX");
+          Config.Step[StepIdx].RxPolarity = CLOSED;
+          nextUCS = cmd; // step # closed, command complete
+          break;
+        default:
+          Serial.println("UserInterface: invalid input to step command");
+          break;
+      } // switch (ArgChar)
+    } 
+
+  case msec: // wait for Tx or Rx delay msec, 0 to 255
+    Token = GetNextToken("enter msec, 0 to 255");
     if (Token == NULL) {
       break;
-    } else { // enclosed because variable declared
-      lmsec = strtol(Token, &endptr, 10);
-      if (endptr == Token) {
-        Serial.print("UserInterface: strtol(Tx_msec) failed , try again");
+    }  
+    // Token should contain msec
+    lmsec = strtol(Token, &endptr, 10); 
+    if (endptr == Token) {
+      Serial.print("UserInterface: strtol(msec) failed, try again");
+      break;
+    }
+    if ((lmsec > 255) | (lmsec < 0)) {
+      Serial.println("UserInterface: Sequence delay msec out of range, try again");
+      break;
+    }
+    // valid lmsec, configure based on StepArg
+    switch (StepArg){
+      case 't':
+        Config.Step[StepIdx].Tx_msec = (uint8_t) lmsec;
+        nextUCS = cmd;
         break;
-      }
-      if ((lmsec > 255) | (lmsec < 0)) {
-        Serial.println("UserInterface: Sequence delay msec out of range, try again");
+      case 'r':
+        Config.Step[StepIdx].Rx_msec = (uint8_t) lmsec;
+        nextUCS = cmd;
         break;
-      }
-      snprintf(Msg, 80, "UserInterface: case Rx_msec StepNum %d", StepNum);
-      Serial.println(Msg);
-      Config.Step[StepNum].Tx_msec = (uint8_t) lmsec;
-      nextUCS = userCmd;
-      break; // case Tx_msec:
-    } // if (Token)
+      default:
+        Serial.println("UserInterface: switch(StepArg), invalid StepArg");
+    } // switch(StepArg)
+    break; // case msec:
 
   default:
     Serial.println("UserInterface: switch(UCS) reached default:");
