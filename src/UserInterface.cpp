@@ -29,7 +29,8 @@ enum UserConfigState {
     cts,          // wait for {enable, disable}
     timeout,      // wait for Time, seconds 0 means disabled
     display,      // PrintConfig(), go to cmd
-    initialize,   // InitDefaultConfig()
+    Init,         // InitDefaultConfig(), needs whole token
+    Boot ,        // call software reset, need whole token
     help,         // PrintHelp()
     err           // user input not understood, go to top
 };
@@ -44,7 +45,8 @@ const char *userStateName[][15] = {"top",
                                        "cts", 
                                        "timeout", 
                                        "display", 
-                                       "init", 
+                                       "Init", 
+                                       "Boot",
                                        "help", 
                                        "err"};
 
@@ -66,10 +68,10 @@ void PrintHelp() {
   Serial.println("CTS {'E'nable, 'D'isable}");
   Serial.println("Timeout 0 to 255 seconds, Tx timeout, 0 means disable");
   Serial.println("Display, print working configuration");
-  Serial.println("Initialize, reset configuration to programmed defaults");
+  Serial.println("'Init', spelled out, initialize configuration to programmed defaults");
   Serial.println("Help, print this text");
   Serial.println("Changes are automatically written to EEPROM");
-  Serial.println("'reset' command, spelled out, simulates power cycle");
+  Serial.println("'Boot' command, spelled out, simulates power cycle");
   Serial.println("Examples...");
   Serial.println("   's 0 t 100' step 0 tx delay 100 msec");
   Serial.println("   'step 0 tx 100' step 0 tx delay 100 msec, long form");
@@ -78,7 +80,8 @@ void PrintHelp() {
   Serial.println("   't 120', tx timeout 120 seconds");
   Serial.println("   't 1', tx timeout disabled");
   Serial.println("   'd', display configuration");
-  Serial.println("   'i', initialize to programmed defaults");
+  Serial.println("   'Init', initialize to programmed defaults, needs whole command");
+  Serial.println("   'Boot', reboot using software reset, needs whole command");
 }
 
 // Called after each case statement for user state machine
@@ -154,7 +157,7 @@ int8_t GetStepIdx(char * Token) {
 
 void UserConfig(sConfig_t *pConfig) {
   sConfig_t Config = *pConfig;  // Make a local copy of the config
-  char * Token;
+  static char * Token;
   char * endptr;
   long lmsec;
 
@@ -175,19 +178,9 @@ void UserConfig(sConfig_t *pConfig) {
     break;
 
   case cmd: // wait for user command, next state based on first letter
-    Token = GetNextToken("Command list: Step, RTS, CTS, Timeout, Display, Prom, Init, Help");
+    Token = GetNextToken("Command list: Step, RTS, CTS, Timeout, Display, Init, Boot, Help");
     if (Token == NULL) {
       break;
-    }
-    // check if user entered 'reset'
-    { // needed to create variable
-      int userReset = strcmp(Token, "reset");
-      if (userReset == 0) {
-        _PROTECTED_WRITE(RSTCTRL.SWRR,1); 
-        // should not get here
-        nextUCS = cmd; 
-        break;
-      }
     }
     CmdChar = (char) tolower(Token[0]);
     switch (CmdChar) { // switch on first character of first token
@@ -207,8 +200,10 @@ void UserConfig(sConfig_t *pConfig) {
         nextUCS = display;
         break;
       case 'i':            // reinitialize config
-        Config = InitDefaultConfig();
-        nextUCS = top;
+        nextUCS = Init;    // require whole token
+        break;
+      case 'b':            // reboot as if from power cycle
+        nextUCS = Boot;    // require whole token
         break;
       case 'h': 
         nextUCS = help;
@@ -294,9 +289,29 @@ void UserConfig(sConfig_t *pConfig) {
     nextUCS = cmd;
     break;
 
-  case initialize:
-    nextUCS = top;
-    break; // switch(UCS) case initialize:
+  case Init: // initialize config from EEPROM
+    if (strcmp(Token, "Init")== 0) { // require whole token
+      Config = InitDefaultConfig();
+      nextUCS = cmd; 
+      break;
+    }  
+    Serial.print("UserInterface: 'Init' command entry error -");
+    Serial.print(Token);
+    Serial.println("-");
+    nextUCS = cmd;
+    break;
+
+  case Boot: // reboot as if from power up
+    if (strcmp(Token, "Boot") == 0) { // require whole token
+      _PROTECTED_WRITE(RSTCTRL.SWRR,1); 
+      nextUCS = cmd; // should not get here
+      break;
+    }  
+    Serial.print("UserInterface: 'Boot' command entry error -");
+    Serial.print(Token);
+    Serial.println("-");
+    nextUCS = cmd;
+    break;
 
   case help:
     PrintHelp();
