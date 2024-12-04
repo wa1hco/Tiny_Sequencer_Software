@@ -17,7 +17,7 @@ The sequencer uses an ATTiny1616 microcontroller which uses a single pin UPDI
 programming interface.
 
 Other features of the software
-* optional USB serial communication with a computer
+* USB serial communication with a computer
 * USB interface for programming or comms based on jumper
 * ability to key using RTS, RTS UP requests Tx
 * ability to read state of key using CTS, CTS UP indicates ready to modulate
@@ -40,6 +40,9 @@ Here are more details from the software comments
 //   State S2R, release relay 2, wait relay 2 release time
 //   State S1R, release relay 1, wait relay 1 release time 
 //   State Rx
+
+The states are number 1 to 4 in this document and on the PCB.  But, the command 
+interface numbers them 0 to 3.
 
 // on key released during transition to transmit
 //   release relay immediately
