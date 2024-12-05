@@ -5,10 +5,10 @@
 extern sConfig_t GlobalConf;
 extern char Msg[80];
 
-#ifdef DEBUG
-extern unsigned long ISR_Time;
-extern unsigned long Min_ISR_Time;
-extern unsigned long Max_ISR_Time;
-#endif
+// State machine timing variables
+extern unsigned long TimeNow;
+extern unsigned long TimeStart;
+extern unsigned int  TimeElapsed;
+extern      uint8_t  TimeDelay;
 
 #endif

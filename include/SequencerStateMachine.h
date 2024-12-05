@@ -6,8 +6,8 @@
 #include "Config.h"
 
 // Public funtion
-void StateMachine(sConfig_t Config, bool Key, int TimeLoop);
-void SequencerISR();
+void StateMachine(bool Key);
+void Sequencer();
 
 #endif
 

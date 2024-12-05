@@ -61,63 +61,17 @@
 sConfig_t GlobalConf;
 char Msg[80];
 
+// State machine variables
+unsigned long TimeNow;
+unsigned long TimeStart;
+unsigned int  TimeElapsed;
+     uint8_t  TimeDelay;
+
 #ifdef DEBUG
 // define the global variables
 unsigned long ISR_Time;
 unsigned long Min_ISR_Time;
 unsigned long Max_ISR_Time;
-#endif
-
-//  Setup ATtiny_TimerInterrupt library
-#if !( defined(MEGATINYCORE) )
-  #error The interrupt is designed only for MEGATINYCORE megaAVR board! Please check your Tools->Board setting
-#endif
-// These define's must be placed at the beginning before #include "megaAVR_TimerInterrupt.h"
-// _TIMERINTERRUPT_LOGLEVEL_ from 0 to 4
-// Don't define _TIMERINTERRUPT_LOGLEVEL_ > 0. Only for special ISR debugging only. Can hang the system.
-#define TIMER_INTERRUPT_DEBUG         0
-#define _TIMERINTERRUPT_LOGLEVEL_     0
-
-// Select USING_FULL_CLOCK      == true for  20/16MHz to Timer TCBx => shorter timer, but better accuracy
-// Select USING_HALF_CLOCK      == true for  10/ 8MHz to Timer TCBx => shorter timer, but better accuracy
-// Select USING_250KHZ          == true for 250KHz to Timer TCBx => longer timer,  but worse  accuracy
-// Not select for default 250KHz to Timer TCBx => longer timer,  but worse accuracy
-#define USING_FULL_CLOCK      true
-#define USING_HALF_CLOCK      false
-#define USING_250KHZ          false         // Not supported now
-
-// Try to use RTC, TCA0 or TCD0 for millis()
-#define USE_TIMER_0           true          // Check if used by millis(), Servo or tone()
-#define USE_TIMER_1           false         // Check if used by millis(), Servo or tone()
-
-#if USE_TIMER_0
-  #define CurrentTimer   ITimer0
-#elif USE_TIMER_1
-  #define CurrentTimer   ITimer1
-#else
-  #error You must select one Timer  
-#endif
-
-// To be included only in main(), .ino with setup() to avoid `Multiple Definitions` Linker Error
-#include "ATtiny_TimerInterrupt.h"
-
-#define TIMER1_INTERVAL_MS    10
-#define TIMER1_FREQUENCY      (float) (1000.0f / TIMER1_INTERVAL_MS)
-
-#define ADJUST_FACTOR         ( (float) 0.99850 )
-
-
-#ifdef DEBUG
-void hexDump(byte* data, int length) {
-  for (int i = 0; i < length; i++) {
-    Serial.print(String(data[i], HEX)); // Print byte in hex format
-    Serial.print(" "); // Add a space between bytes
-    if ((i % 16) == 15) { // Newline after every 16 bytes
-      Serial.println(); 
-    }
-  }
-  Serial.println(); // Final newline
-}
 #endif
 
 void setup() {  
@@ -152,17 +106,14 @@ void setup() {
     GlobalConf = InitDefaultConfig(); // write default values to Config structure
     PutConfig(0, GlobalConf);  //save Config structure to EEPROM address 0
   } // if CRC match
-
-  CurrentTimer.init();
-  if (!CurrentTimer.attachInterruptInterval(TIMER1_INTERVAL_MS * ADJUST_FACTOR, SequencerISR)){
-    Serial.println(F("Can't set ITimer. Select another freq. or timer"));
-  } 
 } // setup()
 
 // this loop is entered seveal seconds after setup()
 // Tx timout is managed at the loop() level, outside of state machine
 void loop() {
   
+  Sequencer();
+
   digitalWrite(XTRA5PIN, HIGH);
 
   // UserConfig update the EEPROM after user input
@@ -171,6 +122,6 @@ void loop() {
   digitalWrite(XTRA5PIN, LOW);
 
   #define LOOPTIMEINTERVAL 30 // msec
-  delay(LOOPTIMEINTERVAL);
+  //delay(LOOPTIMEINTERVAL);
 }
 
