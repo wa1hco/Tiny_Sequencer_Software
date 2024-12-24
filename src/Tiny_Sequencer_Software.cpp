@@ -1,7 +1,7 @@
 // Tiny Sequencer
 // Licensed under GPL V3, copyright 2024 by jeff millar, wa1hco
 
-// on Key asserted, transition thru states to Tx, assuming key remain asserted
+// on isKey asserted, transition thru states to Tx, assuming key remain asserted
 //   state S1T, assert relay 1, wait relay 1 assert time; usually antenna transfer relay
 //   state S2T, assert relay 2, wait relay 2 assert time; usually transverter relays
 //   state S3T, assert relay 3, wait relay 3 assert time; usually (something)
@@ -37,15 +37,15 @@
 //   Timeout causes transition to next state in Rx to Tx or Rx to Tx sequence
 
 // Keying
-//   Key inputs are external wire, RTS from USB serial port
-//   Key inputs configured as asserted HICH or LOW
-//   Key Gate is used for timout, if asserted as if unkeyed
+//   isKey inputs are external wire, RTS from USB serial port
+//   isKey inputs configured as asserted HICH or LOW
+//   isKey Gate is used for timout, if asserted as if unkeyed
 //   RX state will reset key gate if key signal and RTS both released
 
 // Timeout
 //   If external key signal asserted Tx until timeout
 //   Assert a key gate, triggers transition to Rx
-//   Rx waits for Key and RTS signals to release, clears key gate
+//   Rx waits for isKey and RTS signals to release, clears key gate
 
 #include "HardwareConfig.h"
 #include "SoftwareConfig.h"
@@ -59,13 +59,7 @@
 #include <EEPROM.h>
 
 sConfig_t GlobalConf;
-char Msg[80];
-
-// State machine variables
-unsigned long TimeNow;
-unsigned long TimeStart;
-unsigned int  TimeElapsed;
-     uint8_t  TimeDelay;
+char Msg[120];
 
 #ifdef DEBUG
 // define the global variables
@@ -106,6 +100,9 @@ void setup() {
     GlobalConf = InitDefaultConfig(); // write default values to Config structure
     PutConfig(0, GlobalConf);  //save Config structure to EEPROM address 0
   } // if CRC match
+
+  // initialize sequencer states
+  SequencerInit();
 } // setup()
 
 // this loop is entered seveal seconds after setup()
@@ -114,12 +111,12 @@ void loop() {
   
   Sequencer();
 
-  digitalWrite(XTRA5PIN, HIGH);
+  //digitalWrite(XTRA5PIN, HIGH);
 
   // UserConfig update the EEPROM after user input
   UserConfig(&GlobalConf);
 
-  digitalWrite(XTRA5PIN, LOW);
+  //digitalWrite(XTRA5PIN, LOW);
 
   #define LOOPTIMEINTERVAL 30 // msec
   //delay(LOOPTIMEINTERVAL);

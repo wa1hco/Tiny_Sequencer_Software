@@ -5,9 +5,10 @@
 
 #include "Config.h"
 
-// Public funtion
-void StateMachine(bool Key);
-void Sequencer();
+// Public functions
+void SequencerInit();        //called from setup()
+void SequencerSetOutputs();  // called after config change to outputs
+void Sequencer();            // called from loop()
 
 #endif
 

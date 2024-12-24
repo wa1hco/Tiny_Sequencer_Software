@@ -11,6 +11,7 @@
 #include "UserInterface.h"
 #include "HardwareConfig.h"
 #include "SoftwareConfig.h"
+#include "SequencerStateMachine.h"
 #include "Global.h"
 #include <SerialReadLine.h>
 #include <stdlib.h>
@@ -119,7 +120,8 @@ char * GetNextToken(const char * Prompt) {
   }
 
   reader.read(Line);  // copy into local buffer
-  snprintf(Msg, 80, "User entered '%s', %d char", Line, LineLen);
+  // TODO handle cr and lf in user input
+  snprintf(Msg, 80, "User entered '%s'", Line);
   Serial.println(Msg);
 
   Token = strtok(Line, " ");  // update strtok buffer with new line
@@ -275,7 +277,7 @@ void UserConfig(sConfig_t *pConfig) {
         nextUCS = cmd;
         break; // case timeout, start command over
       } else {
-        Config.Timeout = (unsigned int) ulTimeout;
+        Config.Timeout = (uint16_t) ulTimeout;
         nextUCS = cmd;
         break;
       }
@@ -407,5 +409,6 @@ void UserConfig(sConfig_t *pConfig) {
   Config.CRC16 = CalcCRC(Config);  // update CRC16
   PutConfig(0, Config);  // write changed bytes of config to EEPROM
   *pConfig = Config;  // Copy the new config to global config
+
   return;
 } // UserConfig() 

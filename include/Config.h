@@ -12,7 +12,7 @@ struct sConfig_t {
   } Step[4];                // sequencer has 3 steps
   bool         RTSEnable;   // true enabled, false disabled
   bool         CTSEnable;   // true enabled, false disabled
-  unsigned int Timeout;     // sec, Tx timeout timer0 means disabled
+  uint16_t     Timeout;     // sec, Tx timeout time of 0 means disabled
   uint16_t     CRC16;       // check for valid configuration table
 }; 
 #endif

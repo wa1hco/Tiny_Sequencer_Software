@@ -26,7 +26,7 @@
 //----------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|  
 // SeqOut   |   |   |   |   |   |   |   |   |   |   |   |   |   |S4 |S3 |S2 |S1 |   |   |   |
 // Serial   |CTS|   |   |   |   |   |   |   |   |   |RXD|TXD|   |   |   |   |   |   |   |RTS|
-// Key      |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |KEY|   |   |
+// isKey      |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |KEY|   |   |
 // LED      |   |LED|   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |
 // UPDI     |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |PDI|   |
 // EXTRA    |   |   |   |   |X1 |X2 |X3 |X4 |X5 |X6 |   |   |   |   |   |   |   |   |   |   |
@@ -47,10 +47,10 @@
 #define XTRA5PIN  PIN_PB5   // MCU  6,    JP2 5
 #define XTRA6PIN  PIN_PB4   // MCU  7,    JP2 6
 
-// Key input hardware connection
+// isKey input hardware connection
 // Optoisolator has LED that drives NPN transistor 
-// Key input MCU pin is pulled up internally, NPN pulls it down
-// Usual configuration, Key input high in Rx and pull to gnd for Tx
+// isKey input MCU pin is pulled up internally, NPN pulls it down
+// Usual configuration, isKey input high in Rx and pull to gnd for Tx
 // Hardware has current limiting and overvoltage protection
 // 5 to 15 V on KEY+, open or ground on KEY-
 // Other wiring may warrant a change in this
