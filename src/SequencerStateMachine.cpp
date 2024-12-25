@@ -84,10 +84,10 @@ void SequencerInit() {
 
 // set the sequencer outputs per the configuration
 void SequencerSetOutputs() {
-  digitalWrite(S1R_PIN, GlobalConf.Step[0].RxPolarity);
-  digitalWrite(S2R_PIN, GlobalConf.Step[1].RxPolarity);
-  digitalWrite(S3R_PIN, GlobalConf.Step[2].RxPolarity);
-  digitalWrite(S4R_PIN, GlobalConf.Step[3].RxPolarity);
+  digitalWrite(S1R_PIN, Config.Step[0].RxPolarity);
+  digitalWrite(S2R_PIN, Config.Step[1].RxPolarity);
+  digitalWrite(S3R_PIN, Config.Step[2].RxPolarity);
+  digitalWrite(S4R_PIN, Config.Step[3].RxPolarity);
 }
 
 // private functions
@@ -108,7 +108,7 @@ void Sequencer() {
   // Convert isKey input to positive true logic
   isKeyPin = !digitalRead(KEYPIN); // MCU Pin state, Opto off, pin pulled up, Opto ON causes low
   // Convert RTS input to positive true logic and gate with RTS enable
-  isRTSPin = GlobalConf.RTSEnable & !digitalRead(RTSPIN); // USB serial key interface, high = asserted
+  isRTSPin = Config.RTSEnable & !digitalRead(RTSPIN); // USB serial key interface, high = asserted
   // combined hardware and serial RTS positive logic signal
   isKey = (isKeyPin | isRTSPin) & !isTimeOut;  // key in OR RTS AND NOT timeout
 
@@ -130,7 +130,7 @@ void Sequencer() {
 //   run the timer on the current state
 // when timer completes, return the new state
 // Parameters
-//  GlobalConf: polarity of step pins
+//  Config: polarity of step pins
 //  prevState, State: detect when a new state
 //  nextState: for when timer timesout
 //  TimeLoop: time between calls to statemachine, used to decrement timer
@@ -145,13 +145,13 @@ State_t StateTimer (State_t prevState, State_t State, State_t nextState) {
 
     // New state in transition from Rx to Tx
     if ((State >= S1T) & (State <= S4T)) {  
-      digitalWrite(StepPin[State], !GlobalConf.Step[StepIdx[State]].RxPolarity);
-      TimeDelay = (unsigned long) GlobalConf.Step[StepIdx[State]].Tx_msec;
+      digitalWrite(StepPin[State], !Config.Step[StepIdx[State]].RxPolarity);
+      TimeDelay = (unsigned long) Config.Step[StepIdx[State]].Tx_msec;
     }  
     // New state in transition from Tx to Rx  
     if ((State >= S4R) & (State <= S1R)) {              
-      digitalWrite(StepPin[State],  GlobalConf.Step[StepIdx[State]].RxPolarity);
-      TimeDelay = (unsigned long) GlobalConf.Step[StepIdx[State]].Rx_msec;
+      digitalWrite(StepPin[State],  Config.Step[StepIdx[State]].RxPolarity);
+      TimeDelay = (unsigned long) Config.Step[StepIdx[State]].Rx_msec;
     }
     return State; // done for this pass
   } // if state change 
@@ -201,7 +201,7 @@ void StateMachine() {
     case S1T:  // manage step 1 relay during Rx to Tx sequence
       if (isKey) { // if keyed, check timer and need for next state
         nextState = StateTimer(prevState, State, S2T); 
-        digitalWrite(XTRA1PIN, !GlobalConf.Step[S1T- S1T].RxPolarity);
+        digitalWrite(XTRA1PIN, !Config.Step[S1T- S1T].RxPolarity);
       } else { // if not keyed, transition to corresponding Rx transition state
         nextState = S1R;
       }
@@ -210,7 +210,7 @@ void StateMachine() {
     
     case S2T:  // manage step 2 relay during Rx to Tx sequence
       if (isKey) {
-        digitalWrite(XTRA2PIN, !GlobalConf.Step[S2T- S1T].RxPolarity);
+        digitalWrite(XTRA2PIN, !Config.Step[S2T- S1T].RxPolarity);
         nextState = StateTimer(prevState, State, S3T);
       } else {
         nextState = S2R;
@@ -220,7 +220,7 @@ void StateMachine() {
     
     case S3T:  // manage step 3 relay during Rx to Tx sequence
       if (isKey) {
-        digitalWrite(XTRA3PIN, !GlobalConf.Step[S3T - S1T].RxPolarity);
+        digitalWrite(XTRA3PIN, !Config.Step[S3T - S1T].RxPolarity);
         nextState = StateTimer(prevState, State, S4T);
       } else {
         nextState = S3R;
@@ -230,7 +230,7 @@ void StateMachine() {
     
     case S4T:  // manage step 4 relay during Rx to Tx sequence
       if (isKey) {
-        digitalWrite(XTRA4PIN, !GlobalConf.Step[S4T - S1T].RxPolarity);
+        digitalWrite(XTRA4PIN, !Config.Step[S4T - S1T].RxPolarity);
         nextState =  StateTimer(prevState, State, Tx);
       } else {
         nextState = S4R;
@@ -242,9 +242,9 @@ void StateMachine() {
       if (prevState != State) {
         TimeStart = TimeNow;
         TimeElapsed = 0;
-        digitalWrite(CTSPIN, GlobalConf.CTSEnable & CTS_UP);
+        digitalWrite(CTSPIN, Config.CTSEnable & CTS_UP);
       }
-      Timeout = GlobalConf.Timeout; // sec, Tx time limit, but 0 means no timeout
+      Timeout = Config.Timeout; // sec, Tx time limit, but 0 means no timeout
       // watch for timeout
       if ((Timeout > 0) & (TimeElapsed > (((unsigned long) Timeout) * 1000UL))) {
         isTimeOut = true; // block isKey on next pass, accurate enough    
@@ -262,7 +262,7 @@ void StateMachine() {
     case S4R:  // step 4 release timing
       if (!isKey) {
         nextState = StateTimer(prevState, State, S3R);
-        digitalWrite(XTRA4PIN, GlobalConf.Step[S1R - S4R].RxPolarity);
+        digitalWrite(XTRA4PIN, Config.Step[S1R - S4R].RxPolarity);
 
       } else {
         nextState =  S4T;
@@ -273,7 +273,7 @@ void StateMachine() {
     case S3R: 
       if (!isKey) {
         nextState = StateTimer(prevState, State, S2R);
-        digitalWrite(XTRA3PIN, GlobalConf.Step[S1R - S3R].RxPolarity);
+        digitalWrite(XTRA3PIN, Config.Step[S1R - S3R].RxPolarity);
       } else {
         nextState =  S3T;
       }
@@ -283,7 +283,7 @@ void StateMachine() {
     case S2R: 
       if (!isKey) {
         nextState = StateTimer(prevState, State, S1R);
-        digitalWrite(XTRA2PIN, GlobalConf.Step[S1R - S2R].RxPolarity);
+        digitalWrite(XTRA2PIN, Config.Step[S1R - S2R].RxPolarity);
       } else {
         nextState =  S2T;
       }
@@ -293,7 +293,7 @@ void StateMachine() {
     case S1R: 
       if (!isKey) {
         nextState = StateTimer(prevState, State, Rx);
-        digitalWrite(XTRA1PIN, GlobalConf.Step[S1R - S1R].RxPolarity);
+        digitalWrite(XTRA1PIN, Config.Step[S1R - S1R].RxPolarity);
       } else {
         nextState =  S1T;
       }

@@ -58,7 +58,7 @@
 #include <errno.h>
 #include <EEPROM.h>
 
-sConfig_t GlobalConf;
+sConfig_t Config;
 char Msg[120];
 
 #ifdef DEBUG
@@ -95,10 +95,10 @@ void setup() {
   digitalWrite(LEDPIN, HIGH);
 
   // EEPROM is preserved through reset and power cycle, but cleared to 0xFF during programming
-  GlobalConf = GetConfig(0);
-  if (!isConfigValid(GlobalConf)) {
-    GlobalConf = InitDefaultConfig(); // write default values to Config structure
-    PutConfig(0, GlobalConf);  //save Config structure to EEPROM address 0
+  Config = GetConfig(0);
+  if (!isConfigValid(Config)) {
+    Config = InitDefaultConfig(); // write default values to Config structure
+    PutConfig(0, Config);  //save Config structure to EEPROM address 0
   } // if CRC match
 
   // initialize sequencer states
@@ -114,7 +114,7 @@ void loop() {
   //digitalWrite(XTRA5PIN, HIGH);
 
   // UserConfig update the EEPROM after user input
-  UserConfig(&GlobalConf);
+  UserConfig();
 
   //digitalWrite(XTRA5PIN, LOW);
 

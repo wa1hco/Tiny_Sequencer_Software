@@ -63,26 +63,27 @@ void PrintHelp() {
   Serial.println("This is help for the user interface.");
   Serial.println("The user enters command and parameters, MCU echos after end of line");
   Serial.println("Input can be one token at a time or all the tokens for a command");
-  Serial.println("Top level: 'S'tep, 'R'TS, 'C'TS, 'T'imeout, 'D'isplay, 'P'rom, 'I'nitialize, 'H'elp");
-  Serial.println("Step {Step number 0 to 3} {'T'x delay, 'R'x delay, 'O'pen on rx, 'C'losed on rx}");
-  Serial.println("RTS {'E'nable, 'D'isable}");
-  Serial.println("CTS {'E'nable, 'D'isable}");
-  Serial.println("Timeout 0 to 255 seconds, Tx timeout, 0 means disable");
-  Serial.println("Display, print working configuration");
-  Serial.println("'Init', spelled out, initialize configuration to programmed defaults");
-  Serial.println("Help, print this text");
+  Serial.println("Top level configuration commands: S(tep), R(TS), C(TS), T(imeout)"); 
+  Serial.println("  Step {Step number 0 to 3} {T(x) delay, R(x) delay, O(pen) on rx, C(losed) on rx}");
+  Serial.println("  RTS {E(nable), D(isable)}");
+  Serial.println("  CTS {E(nable), D(isable)}");
+  Serial.println("  Timeout 0 to 255 seconds, Tx timeout, 0 means disable");
+  Serial.println("Top level Info commands: D(isplay), Boot, Init, H(elp)");
+  Serial.println("  Display, print working configuration");
+  Serial.println("  Init, spelled out, initialize configuration to programmed defaults");
+  Serial.println("  Boot, spelled out, simulates power cycle");
+  Serial.println("  Help, print this text");
   Serial.println("Changes are automatically written to EEPROM");
-  Serial.println("'Boot' command, spelled out, simulates power cycle");
   Serial.println("Examples...");
-  Serial.println("   's 0 t 100' step 0 tx delay 100 msec");
-  Serial.println("   'step 0 tx 100' step 0 tx delay 100 msec, long form");
-  Serial.println("   's 3 o, step 3 Open on Rx");
-  Serial.println("   'r e', RTS enable");
-  Serial.println("   't 120', tx timeout 120 seconds");
-  Serial.println("   't 1', tx timeout disabled");
-  Serial.println("   'd', display configuration");
-  Serial.println("   'Init', initialize to programmed defaults, needs whole command");
-  Serial.println("   'Boot', reboot using software reset, needs whole command");
+  Serial.println("  's 0 t 100' step 0 tx delay 100 msec");
+  Serial.println("  'step 0 tx 100' step 0 tx delay 100 msec, long form");
+  Serial.println("  's 3 o, step 3 Open on Rx");
+  Serial.println("  'r e', RTS enable");
+  Serial.println("  't 120', tx timeout 120 seconds");
+  Serial.println("  't 0', tx timeout disabled");
+  Serial.println("  'd', display configuration");
+  Serial.println("  'Init', spelled out, initialize to programmed defaults");
+  Serial.println("  'Boot', spelled out, reboot using software reset");
 }
 
 // Called after each case statement for user state machine
@@ -157,11 +158,11 @@ int8_t GetStepIdx(char * Token) {
 #define OPEN   LOW    // map Digital pin to Sequencer contact closure 
 #define CLOSED HIGH
 
-void UserConfig(sConfig_t *pConfig) {
-  sConfig_t Config = *pConfig;  // Make a local copy of the config
+void UserConfig() {
   static char * Token;
   char * endptr;
   long lmsec;
+  static bool isConfUpdate = false;
 
   // these variable get passed from state call to state call
   static uint8_t StepIdx;  // step command index number, {0 to 3}
@@ -225,15 +226,17 @@ void UserConfig(sConfig_t *pConfig) {
     case 'e':
       //Serial.println("RTS enabled");
       Config.RTSEnable = true;
+      isConfUpdate = true;
       nextUCS = cmd;
       break;
     case 'd':
       //Serial.println("RTS Disabled");
       Config.RTSEnable = false;
+      isConfUpdate = true;
       nextUCS = cmd;
       break;
     default:
-      Serial.println("UserInterface: rts {Enable, Disable} not found");
+      Serial.println("UserInterface: rts invalid entry, select {Enable, Disable}");
     } // switch(tolower(Token[0]))
     break; // case rts:
     
@@ -246,11 +249,13 @@ void UserConfig(sConfig_t *pConfig) {
     case 'e':
       Serial.println("CTS enabled");
       Config.CTSEnable = true;
+      isConfUpdate = true;
       nextUCS = cmd;
       break;
     case 'd':
       Serial.println("CTS Disabled");
       Config.CTSEnable = false;
+      isConfUpdate = true;
       nextUCS = cmd;
       break;
     default:
@@ -278,6 +283,7 @@ void UserConfig(sConfig_t *pConfig) {
         break; // case timeout, start command over
       } else {
         Config.Timeout = (uint16_t) ulTimeout;
+        isConfUpdate = true;
         nextUCS = cmd;
         break;
       }
@@ -356,11 +362,13 @@ void UserConfig(sConfig_t *pConfig) {
         case 'o':
           //Serial.println("UserInterface: StepState Open on RX");
           Config.Step[StepIdx].RxPolarity = OPEN;
-          nextUCS = cmd; // step # open, command complete
+          isConfUpdate = true;
+        nextUCS = cmd; // step # open, command complete
           break;
         case 'c':
           //Serial.println("UserInterface: StepState Closed on RX");
           Config.Step[StepIdx].RxPolarity = CLOSED;
+          isConfUpdate = true;
           nextUCS = cmd; // step # closed, command complete
           break;
         default:
@@ -388,10 +396,12 @@ void UserConfig(sConfig_t *pConfig) {
     switch (StepArg){
       case 't':
         Config.Step[StepIdx].Tx_msec = (uint8_t) lmsec;
+        isConfUpdate = true;
         nextUCS = cmd;
         break;
       case 'r':
         Config.Step[StepIdx].Rx_msec = (uint8_t) lmsec;
+        isConfUpdate = true;
         nextUCS = cmd;
         break;
       default:
@@ -406,9 +416,12 @@ void UserConfig(sConfig_t *pConfig) {
   } // switch(UCS)
 
   // The user may have made changes to the config
-  Config.CRC16 = CalcCRC(Config);  // update CRC16
-  PutConfig(0, Config);  // write changed bytes of config to EEPROM
-  *pConfig = Config;  // Copy the new config to global config
-
+  if (isConfUpdate) {
+    Config.CRC16 = CalcCRC(Config);  // update CRC16
+    PutConfig(0, Config);  // write changed bytes of config to EEPROM
+    isConfUpdate = false;
+    SequencerSetOutputs();
+  }
+ 
   return;
 } // UserConfig() 

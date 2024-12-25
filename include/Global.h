@@ -2,7 +2,7 @@
 #define GLOBAL_H
 
 // declare the global variables
-extern sConfig_t GlobalConf;
+extern sConfig_t Config;
 extern char Msg[];
 
 #endif
