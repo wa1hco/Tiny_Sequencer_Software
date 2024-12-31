@@ -66,7 +66,7 @@ sConfig_t InitDefaultConfig() {
 
 // pretty print the memory configuration on serial port
 void PrintConfig(sConfig_t Config) {
-  Serial.println("Tiny Sequencer, V0.4 Config");
+  Serial.println("Tiny Sequencer, (c) wa1hco, V0.5, Creative Commons\n");
   for(int ii = 0; ii < 4; ii++) {
     char Polarity_str[15] = "              ";
     if (Config.Step[ii].RxPolarity == OPEN) {
