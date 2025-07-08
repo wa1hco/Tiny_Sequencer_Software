@@ -36,33 +36,33 @@ On Key asserted, transition thru states to Tx, assuming key remain asserted
 *   state Tx, transmit ready, assert CTS
 
 On key released, transition thru states to Rx, assuming key remains released
-*  State S4R, release relay 4, release CTS, wait relay 4 release time
-*   State S3R, release relay 3, wait relay 3 release time
-*   State S2R, release relay 2, wait relay 2 release time
-*   State S1R, release relay 1, wait relay 1 release time 
-*   State Rx
+* State S4R, release relay 4, release CTS, wait relay 4 release time
+* State S3R, release relay 3, wait relay 3 release time
+* State S2R, release relay 2, wait relay 2 release time
+* State S1R, release relay 1, wait relay 1 release time 
+* State Rx
 
 On key released during transition to transmit
- *   release relay immediately
- *   wait relay release time
- *   transition to next release step
+ * release relay immediately
+ * wait relay release time
+ * transition to next release step
 
 On key asserted during transition to receive
- *   assert relay immediately
- *   wait relay asert time
- *   enter transition to next transmit step
+ * assert relay immediately
+ * wait relay asert time
+ * enter transition to next transmit step
 
 State machine has 
- *   Rx state holds as long as key released
- *   Tx state holds as long as key asserted
- *   Key optionally has a Timeout
- *   4 Tx timed states for relays asserted
- *   4 Rx timed states for relays released
- *   Tx states exit to corresponding Rx state if key released
- *   Rx states ex it to corresponding Tx State if key asserted
- *   Timed states set timers on transition into that state
- *   Timer values set based on relay close and open times, may be different
- *   Timeout causes transition to next state in Rx to Tx or Rx to Tx sequence
+ * Rx state holds as long as key released
+ * Tx state holds as long as key asserted
+ * Key optionally has a Timeout
+ * 4 Tx timed states for relays asserted
+ * 4 Rx timed states for relays released
+ * Tx states exit to corresponding Rx state if key released
+ * Rx states ex it to corresponding Tx State if key asserted
+ * Timed states set timers on transition into that state
+ * Timer values set based on relay close and open times, may be different
+ * Timeout causes transition to next state in Rx to Tx or Rx to Tx sequence
 
 Keying
 *   Key inputs are external opto diode or RTS from USB serial port
