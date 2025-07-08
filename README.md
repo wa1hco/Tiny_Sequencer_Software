@@ -52,7 +52,7 @@ On key asserted during transition to receive
  * wait relay asert time
  * enter transition to next transmit step
 
-State machine has 
+State machine behavior
  * Rx state holds as long as key released
  * Tx state holds as long as key asserted
  * Key optionally has a Timeout
@@ -69,3 +69,28 @@ Keying
 *   Key inputs are converted High true logic and OR'd together
 *   Key is AND'd with TxTimout
 *   RX state will reset TxTimeout if key signal and RTS both released
+
+This is help for the user interface
+* The user enters command and parameters, MCU echos after end of line
+* Input can be one token at a time or all the tokens for a command
+* Top level: 'S'tep, 'R'TS, 'C'TS, 'T'imeout, 'D'isplay, 'P'rom, 'I'nitialize, 'H'elp
+  * Step {Step number 0 to 3} {'T'x delay, 'R'x delay, 'O'pen on rx, 'C'losed on rx}
+  * RTS {'E'nable, 'D'isable}
+  * CTS {'E'nable, 'D'isable}
+  * Timeout 0 to 255 seconds, Tx timeout, 0 means disable
+  * Display, print working configuration
+  * 'Init', spelled out, initialize configuration to programmed defaults
+  * Help, print this text
+
+Changes are automatically written to EEPROM");
+* 'Boot' command, spelled out, simulates power cycle");
+* "Examples...
+  * 's 0 t 100' step 0 tx delay 100 msec");
+  * 'step 0 tx 100' step 0 tx delay 100 msec, long form");
+  * 's 3 o, step 3 Open on Rx");
+  * 'r e', RTS enable");
+  * 't 120', tx timeout 120 seconds");
+  * 't 1', tx timeout disabled");
+  * 'd', display configuration");
+  * 'Init', initialize to programmed defaults, needs whole command");
+  * 'Boot', reboot using software reset, needs whole command");
