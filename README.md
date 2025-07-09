@@ -82,14 +82,14 @@ This is help for the user interface
   * 'Init', spelled out, initialize configuration to programmed defaults
   * Help, print this text
 
-Changes are automatically written to EEPROM");
-* 'Boot' command, spelled out, simulates power cycle");
+Changes are automatically written to EEPROM
+* 'Boot' command, spelled out, simulates power cycle
 * "Examples...
-  * 's 0 t 100' step 0 tx delay 100 msec");
-  * 'step 0 tx 100' step 0 tx delay 100 msec, long form");
-  * 's 3 o, step 3 Open on Rx");
-  * 'r e', RTS enable");
-  * 't 120', tx timeout 120 seconds");
+  * 's 0 t 100' step 0 tx delay 100 msec
+  * 'step 0 tx 100' step 0 tx delay 100 msec, long form
+  * 's 3 o, step 3 Open on Rx
+  * 'r e', RTS enable
+  * 't 120', tx timeout 120 seconds
   * 't 1', tx timeout disabled");
   * 'd', display configuration");
   * 'Init', initialize to programmed defaults, needs whole command");
